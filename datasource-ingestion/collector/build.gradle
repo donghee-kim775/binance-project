@@ -1,0 +1,34 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.cdc'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter'
+	implementation 'org.springframework.boot:spring-boot-starter-json'
+
+	// Kafka는 아직 붙이지 않는다 (POC 단계 — 무엇을 보낼지 로그로만 확인한다).
+	// 실제로 발행을 시작할 때 아래 의존성을 켜고 RawEventPublisher에 KafkaTemplate을 주입해서 쓴다.
+	// implementation 'org.springframework.kafka:spring-kafka'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
