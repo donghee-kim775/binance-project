@@ -1,0 +1,70 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: binance-cluster-pool
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: binance-cluster
+spec:
+  # 클러스터에서 동작할 브로커 Pod 개수 (고가용성을 위해 3대로 설정)
+  replicas: 3
+  
+  # KRaft 모드에서 노드가 수행할 역할 지정 (브로커와 컨트롤러 역할을 겸용)
+  roles:
+    - broker
+    - controller
+    
+  # 각 브로커 Pod이 사용할 영구 볼륨(Persistent Volume) 설정
+  storage:
+    type: persistent-claim
+    size: 5Gi          # 브로커 당 50GB 디스크 할당
+    deleteClaim: false # 클러스터 삭제 시 PVC(볼륨) 자동 삭제 방지 (데이터 보호)
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: binance-cluster
+  namespace: kafka
+spec:
+  # Kafka 클러스터 설정
+  kafka:
+    version: "4.3.1" # 사용할 Apache Kafka 엔진 버전
+    
+    # 클라이언트 통신을 위한 리스너(포트 및 프로토콜) 설정
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        
+    # Kafka 브로커 핵심 튜닝 설정 값들
+    config:
+      # 내부 오프셋 토픽(__consumer_offsets) 복제 팩터 (컨슈머 읽기 위치 저장)
+      offsets.topic.replication.factor: 3
+      
+      # 새로운 토픽 생성 시 기본적으로 적용될 복제 팩터
+      default.replication.factor: 3
+
+      # 최소 인싱크 레플리카 수 (쓰기 성공을 인정하기 위한 최소 동기화 브로커 수)
+      min.insync.replicas: 2
+
+      # 트랜잭션 상태 로그(__transaction_state) 복제 팩터
+      transaction.state.log.replication.factor: 3
+      
+      # 트랜잭션 쓰기 시 필요한 최소 동기화 레플리카 수
+      transaction.state.log.min.isr: 2
+      
+      # 데이터 보존 정책: 시간 기준 (168시간 = 7일 지난 로그 자동 삭제)
+      log.retention.hours: 168
+      
+      # 데이터 보존 정책: 용량 기준 (파티션/로그당 50GB 초과 시 오래된 데이터부터 삭제)
+      log.retention.bytes: 53687091200
+
+  # Kafka 생태계를 관리하는 오퍼레이터(토픽 및 사용자 자동 관리 도구)
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
