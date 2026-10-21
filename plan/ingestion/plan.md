@@ -113,3 +113,173 @@ Stream 별로 application 을 만들어서 1:1 로 관리해야하나? `topic <-
         - ClickHouse 네이티브 Kafka Engine + `Replicated_deduplication_window`
     
 - **선택 :**
+
+
+## [Ingestion Pod 구성도]
+
+[0TickerInfoTable.md](../../APIdocs/0TickerInfoTable.md)의 수집 심볼을 기준으로, 위 고려 사항을 적용했을 때 뜨는 pod 구성이다. 토픽 설계는 [topic/plan.md](../topic/plan.md) 참고.
+
+### 수집 대상
+
+| 자산 | product | 심볼 |
+| --- | --- | --- |
+| crypto | spot | BTCUSDT |
+| crypto | usdm | BTCUSDT |
+| stock (optical) | usdm | LITEUSDT, CRDOUSDT, ALABUSDT |
+| stock (semi) | usdm | NVDAUSDT, AVGOUSDT, MRVLUSDT |
+
+### pod 그룹 규칙
+
+| 그룹 | 스트림 | 묶는 단위 | HA | replicas | pod 이름 규칙 |
+| --- | --- | --- | --- | --- | --- |
+| variable-rate | bookTicker, trade(aggTrade), depth | crypto는 심볼, stock은 섹터 | Active-Active | 2 | `<product>-<심볼>`, `<product>-stock-<섹터>` |
+| fixed-rate | markPrice@1s | crypto / stock 섹터 | Active-Standby | 1 | `markprice-<product>-<crypto \| stock-섹터>` |
+
+- variable-rate pod 하나는 **스트림 종류마다 소켓 1개씩, 총 3개**를 연다. 섹터 pod는 같은 스트림의 심볼들을 combined stream 하나로 묶는다.
+- fixed-rate pod는 섹터에 속한 심볼의 `<symbol>@markPrice@1s`만 combined로 구독한다 (`!markPrice@arr` 전체 구독 후 필터링하지 않음).
+- stock은 기초 시장 장외 시간에 트래픽이 거의 없어 심볼별이 아니라 섹터별로 묶는다.
+
+### 구성도
+
+```mermaid
+flowchart LR
+    subgraph BIN["Binance WSS"]
+        SPOT["stream.binance.com:9443<br/>(Spot)"]
+        FAPI["fstream.binance.com<br/>(USD-M)"]
+    end
+
+    subgraph VR["variable-rate · Active-Active (replicas 2)"]
+        direction TB
+        P1["spot-btcusdt ×2<br/>bookTicker · trade · depth"]
+        P2["usdm-btcusdt ×2<br/>bookTicker · aggTrade · depth"]
+        P3["usdm-stock-optical ×2<br/>LITE · CRDO · ALAB<br/>bookTicker · aggTrade · depth"]
+        P4["usdm-stock-semi ×2<br/>NVDA · AVGO · MRVL<br/>bookTicker · aggTrade · depth"]
+    end
+
+    subgraph FR["fixed-rate · Active-Standby (replicas 1)"]
+        direction TB
+        P5["markprice-usdm-crypto ×1<br/>BTCUSDT"]
+        P6["markprice-usdm-stock-optical ×1<br/>LITE · CRDO · ALAB"]
+        P7["markprice-usdm-stock-semi ×1<br/>NVDA · AVGO · MRVL"]
+    end
+
+    subgraph K["Kafka raw 토픽"]
+        direction TB
+        T1["binance.raw.spot.crypto.*<br/>bookticker · trade · depth"]
+        T2["binance.raw.usdm.crypto.*<br/>bookticker · aggtrade · depth"]
+        T3["binance.raw.usdm.stock.*<br/>bookticker · aggtrade · depth"]
+        T4["binance.raw.usdm.crypto.markprice"]
+        T5["binance.raw.usdm.stock.markprice"]
+    end
+
+    SPOT --> P1
+    FAPI --> P2 & P3 & P4
+    FAPI --> P5 & P6 & P7
+
+    P1 --> T1
+    P2 --> T2
+    P3 & P4 --> T3
+    P5 --> T4
+    P6 & P7 --> T5
+
+    K --> F["Flink dedup"] --> C["binance.clean.*"]
+```
+
+### pod 하나의 내부 (usdm-stock-semi 예시)
+
+```text
+┌──────────────────────── pod: usdm-stock-semi-8c5d7e9f1-g5h6i ────────────────────────┐
+│                                                                                      │
+│  socket 1  /public/stream?streams=nvdausdt@bookTicker/avgousdt@bookTicker/mrvlusdt@bookTicker
+│     └──> parser(bookTicker) ──> binance.raw.usdm.stock.bookticker                    │
+│                                                                                      │
+│  socket 2  /market/stream?streams=nvdausdt@aggTrade/avgousdt@aggTrade/mrvlusdt@aggTrade
+│     └──> parser(aggTrade)   ──> binance.raw.usdm.stock.aggtrade                      │
+│                                                                                      │
+│  socket 3  /public/stream?streams=nvdausdt@depth@100ms/avgousdt@depth@100ms/mrvlusdt@depth@100ms
+│     └──> parser(depth)      ──> binance.raw.usdm.stock.depth                         │
+│                                                                                      │
+│  envelope: product=usdm, asset_class=stock, sector=semi, collector_id=$HOSTNAME      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+   × 2 (Active-Active, 같은 이벤트를 두 pod가 모두 발행 → Flink에서 dedup)
+```
+
+### 전체 pod 목록 (총 11개)
+
+| Deployment | 그룹 | replicas | 소켓 수 | 쓰는 토픽 |
+| --- | --- | --- | --- | --- |
+| `spot-btcusdt` | variable-rate | 2 | 3 | `binance.raw.spot.crypto.{bookticker,trade,depth}` |
+| `usdm-btcusdt` | variable-rate | 2 | 3 | `binance.raw.usdm.crypto.{bookticker,aggtrade,depth}` |
+| `usdm-stock-optical` | variable-rate | 2 | 3 | `binance.raw.usdm.stock.{bookticker,aggtrade,depth}` |
+| `usdm-stock-semi` | variable-rate | 2 | 3 | `binance.raw.usdm.stock.{bookticker,aggtrade,depth}` |
+| `markprice-usdm-crypto` | fixed-rate | 1 | 1 | `binance.raw.usdm.crypto.markprice` |
+| `markprice-usdm-stock-optical` | fixed-rate | 1 | 1 | `binance.raw.usdm.stock.markprice` |
+| `markprice-usdm-stock-semi` | fixed-rate | 1 | 1 | `binance.raw.usdm.stock.markprice` |
+
+### pod별 구독 웹소켓
+
+USD-M은 스트림 종류에 따라 경로 접두어가 다르다. 접두어를 틀리면 연결은 되지만 메시지가 오지 않는다.
+
+| product | 경로 | 스트림 |
+| --- | --- | --- |
+| Spot | `wss://stream.binance.com:9443/ws/` (단일), `/stream?streams=` (combined) | bookTicker, trade, depth |
+| USD-M | `wss://fstream.binance.com/public/...` | bookTicker, depth |
+| USD-M | `wss://fstream.binance.com/market/...` | aggTrade, markPrice |
+
+#### variable-rate
+
+```text
+spot-btcusdt  (×2)
+ ├─ socket 1  wss://stream.binance.com:9443/ws/btcusdt@bookTicker
+ ├─ socket 2  wss://stream.binance.com:9443/ws/btcusdt@trade
+ └─ socket 3  wss://stream.binance.com:9443/ws/btcusdt@depth@100ms
+
+usdm-btcusdt  (×2)
+ ├─ socket 1  wss://fstream.binance.com/public/ws/btcusdt@bookTicker
+ ├─ socket 2  wss://fstream.binance.com/market/ws/btcusdt@aggTrade
+ └─ socket 3  wss://fstream.binance.com/public/ws/btcusdt@depth@100ms
+
+usdm-stock-optical  (×2)
+ ├─ socket 1  wss://fstream.binance.com/public/stream?streams=liteusdt@bookTicker/crdousdt@bookTicker/alabusdt@bookTicker
+ ├─ socket 2  wss://fstream.binance.com/market/stream?streams=liteusdt@aggTrade/crdousdt@aggTrade/alabusdt@aggTrade
+ └─ socket 3  wss://fstream.binance.com/public/stream?streams=liteusdt@depth@100ms/crdousdt@depth@100ms/alabusdt@depth@100ms
+
+usdm-stock-semi  (×2)
+ ├─ socket 1  wss://fstream.binance.com/public/stream?streams=nvdausdt@bookTicker/avgousdt@bookTicker/mrvlusdt@bookTicker
+ ├─ socket 2  wss://fstream.binance.com/market/stream?streams=nvdausdt@aggTrade/avgousdt@aggTrade/mrvlusdt@aggTrade
+ └─ socket 3  wss://fstream.binance.com/public/stream?streams=nvdausdt@depth@100ms/avgousdt@depth@100ms/mrvlusdt@depth@100ms
+```
+
+#### fixed-rate
+
+```text
+markprice-usdm-crypto  (×1)
+ └─ socket 1  wss://fstream.binance.com/market/ws/btcusdt@markPrice@1s
+
+markprice-usdm-stock-optical  (×1)
+ └─ socket 1  wss://fstream.binance.com/market/stream?streams=liteusdt@markPrice@1s/crdousdt@markPrice@1s/alabusdt@markPrice@1s
+
+markprice-usdm-stock-semi  (×1)
+ └─ socket 1  wss://fstream.binance.com/market/stream?streams=nvdausdt@markPrice@1s/avgousdt@markPrice@1s/mrvlusdt@markPrice@1s
+```
+
+- 심볼이 하나면 `/ws/<stream>` (단일), 여러 개면 `/stream?streams=a/b/c` (combined)를 쓴다. combined는 메시지가 `{"stream": "...", "data": {...}}`로 감싸져 오므로, `stream` 필드로 심볼을 구분해 파싱한다.
+- 실제 URL에는 줄바꿈 없이 한 줄로 쓴다.
+- 소켓 수 합계: variable-rate 4종 × 3소켓 × 2 replicas = 24, fixed-rate 3종 × 1소켓 × 1 = 3, 총 **27개 연결**.
+
+```text
+$ kubectl get pods -n ingestion
+spot-btcusdt-6f8d9c7b5-x2k4p
+spot-btcusdt-6f8d9c7b5-m8q1z
+usdm-btcusdt-5b7c8d9f6-p3n7w
+usdm-btcusdt-5b7c8d9f6-k9r2t
+usdm-stock-optical-7d4f6b8c9-a1b2c
+usdm-stock-optical-7d4f6b8c9-d3e4f
+usdm-stock-semi-8c5d7e9f1-g5h6i
+usdm-stock-semi-8c5d7e9f1-j7k8l
+markprice-usdm-crypto-4a6b8c2d3-m9n0p
+markprice-usdm-stock-optical-9e1f3a5b7-q1r2s
+markprice-usdm-stock-semi-2b4d6f8a1-t3u4v
+```
+
+pod 이름 끝의 해시는 Kubernetes가 붙이는 랜덤 값이다. 그룹은 이름이 아니라 label(`rate-group: variable | fixed`)로 구분한다.
