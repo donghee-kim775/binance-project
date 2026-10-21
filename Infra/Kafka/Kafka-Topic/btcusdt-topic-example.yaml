@@ -1,0 +1,13 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: btcusdt-topic  # 생성할 토픽 이름
+  labels:
+    strimzi.io/cluster: binance-cluster
+spec:
+  partitions: 4              # 파티션 수
+  replicas: 3                # 복제 팩터 (default.replication.factor 역할)
+  config:
+    min.insync.replicas: 2   # 일반 토픽용 최소 ISR 설정
+    retention.ms: 604800000  # 보존 시간 (7일 = 168시간)
+    retention.bytes: 53687091200 # 보존 용량 (50GB)
