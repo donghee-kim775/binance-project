@@ -1,0 +1,15 @@
+# kubectl apply -k datasource-ingestion/deploy
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - common.yaml
+  # variable-rate · Active-Active (replicas 2)
+  - variable-rate/spot-btcusdt.yaml
+  - variable-rate/usdm-btcusdt.yaml
+  - variable-rate/usdm-stock-optical.yaml
+  - variable-rate/usdm-stock-semi.yaml
+  # fixed-rate · Active-Standby (replicas 1)
+  - fixed-rate/markprice-usdm-crypto.yaml
+  - fixed-rate/markprice-usdm-stock-optical.yaml
+  - fixed-rate/markprice-usdm-stock-semi.yaml
