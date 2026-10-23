@@ -1,0 +1,15 @@
+# 모든 Ingestion Pod가 공통으로 쓰는 namespace와 환경 변수
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: binance-ingestion
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingestion-common
+  namespace: binance-ingestion
+data:
+  # spring-kafka를 켜면 바로 쓰이는 값 (Strimzi bootstrap service, Infra/Kafka/Kafka-Cluster 참고)
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: binance-cluster-kafka-bootstrap.kafka.svc:9092
+  LOGGING_LEVEL_COM_INGESTION: INFO

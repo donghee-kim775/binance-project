@@ -1,0 +1,82 @@
+# markprice-usdm-crypto — fixed-rate · Active-Standby (replicas 1)
+# 구독: BTC × markPrice@1s  (소켓 1개)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: markprice-usdm-crypto-config
+  namespace: binance-ingestion
+  labels:
+    app.kubernetes.io/name: ingestion-collector
+    app.kubernetes.io/instance: markprice-usdm-crypto
+    rate-group: fixed
+data:
+  # /config/application.yaml로 마운트되어 이미지 안의 application.yml을 덮어쓴다
+  application.yaml: |
+    binance:
+      setup:
+        symbol: BTCUSDT   # 현재 POC가 읽는 유일한 값 (아래 ingestion.* 은 runner 리팩터링 후 사용)
+    ingestion:
+      group: fixed-rate
+      product: usdm
+      asset-class: crypto
+      sector: null
+      symbols: [BTCUSDT]
+      streams:
+        - stream: markPrice@1s
+          path: "/market"
+          topic: binance.raw.usdm.crypto.markprice
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: markprice-usdm-crypto
+  namespace: binance-ingestion
+  labels:
+    app.kubernetes.io/name: ingestion-collector
+    app.kubernetes.io/instance: markprice-usdm-crypto
+    rate-group: fixed
+spec:
+  replicas: 1   # Active-Standby(재시작 기반): 중복이 생기지 않아 dedup 불필요
+  strategy:
+    type: Recreate   # 기존 pod를 먼저 내리고 새 pod를 띄움 → 두 pod가 동시에 발행하는 순간이 없음 (대신 재시작 동안 공백)
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: markprice-usdm-crypto
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ingestion-collector
+        app.kubernetes.io/instance: markprice-usdm-crypto
+        rate-group: fixed
+        product: usdm
+        asset-class: crypto
+    spec:
+      terminationGracePeriodSeconds: 30   # @PreDestroy에서 WebSocket close 프레임을 보낼 시간
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: collector
+          image: ingestion-collector:0.0.1
+          imagePullPolicy: IfNotPresent   # kind load로 넣은 로컬 이미지를 사용
+          envFrom:
+            - configMapRef:
+                name: ingestion-common
+          env:
+            - name: COLLECTOR_ID           # envelope의 collector_id (어느 pod가 보낸 메시지인지)
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: markprice-usdm-crypto-config
