@@ -32,7 +32,7 @@ public class BinanceStreamClient implements WebSocket.Listener {
     private static final Duration RECONNECT_DELAY = Duration.ofSeconds(5);
 
     // ── 생성자로 주입받는 연결 설정값 ──────────────────────────────
-    private final String streamLabel;         // 로그 구분용 라벨 (예: "spot-bookTicker-ethusdt")
+    private final String streamLabel;         // 로그 구분용 라벨 (예: "usdm-optical-bookTicker")
     private final URI uri;                   // 접속할 WebSocket 주소
     private final Consumer<String> onMessage; // 메시지 수신 시 위임할 콜백 — 이 클래스는 내용을 모름
 

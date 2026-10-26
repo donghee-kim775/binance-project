@@ -1,0 +1,14 @@
+# 자격증명 · 키 (API 키는 코드나 노트북에 넣지 않고 환경변수로 읽는다)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+kubeconfig*
+
+# Jupyter · Python
+.ipynb_checkpoints/
+__pycache__/
+
+# OS
+.DS_Store

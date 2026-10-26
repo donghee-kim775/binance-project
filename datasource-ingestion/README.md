@@ -15,7 +15,8 @@ datasource-ingestion/
 │       ├── IngestionCollectorApplication.java   # main() — SpringApplication 부트스트랩
 │       ├── config/
 │       │   ├── BinanceProperties.java           # binance.* — Endpoint(접속 도메인, 환경별) · Subscription(구독 설정, pod별)
-│       │   └── AsyncConfig.java                 # 메시지 처리용 스레드풀
+│       │   ├── AsyncConfig.java                 # 메시지 처리용 스레드풀
+│       │   └── KafkaConfig.java                 # Kafka 접속 주소(spring.kafka.bootstrap-servers) — 지금은 시작 로그만
 │       ├── runner/
 │       │   └── CollectorRunner.java             # streams를 돌며 URL 조립 → 소켓 연결
 │       ├── collector/

@@ -9,5 +9,5 @@ binance:
     symbols: [ETHUSDT]
     streams:
       - stream: bookTicker
-        path: ""
+        route-prefix: ""
         topic: binance.raw.spot.crypto.bookticker

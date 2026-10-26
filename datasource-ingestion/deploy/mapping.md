@@ -39,9 +39,9 @@
                     ├─ binance.endpoint.*     → BinanceProperties.Endpoint       config/BinanceProperties:56   접속 도메인 (환경별)
                     └─ binance.subscription.* → BinanceProperties.Subscription   config/BinanceProperties:80   구독 설정 (pod별)
                ▼
-          ④ Bean 생성 + 생성자 주입          CollectorRunner:46, MarketDataIngestService:42
+          ④ Bean 생성 + 생성자 주입          CollectorRunner:47, MarketDataIngestService:39
                ▼
-[앱]      ⑤ CollectorRunner.run()           runner/CollectorRunner:55          소켓마다 URL 조립 → connect
+[앱]      ⑤ CollectorRunner.run()           runner/CollectorRunner:60          소켓마다 URL 조립 → connect
                ▼
           ⑥ BinanceStreamClient.onText()    collector/BinanceStreamClient:91   [WebSocket 콜백 스레드] 수신
                ▼
@@ -56,7 +56,7 @@
 | ② | 설정 파일 로드 | `deploy/Dockerfile`, `IngestionCollectorApplication.java` | — |
 | ③ | Bean 후보 찾기 · yaml → record 바인딩 | `IngestionCollectorApplication.java`, `config/BinanceProperties.java` | 전부 |
 | ④ | Bean 생성 · 주입 | `runner/CollectorRunner.java`, `service/MarketDataIngestService.java`, `config/AsyncConfig.java` | — |
-| ⑤ | 소켓 생성 | `runner/CollectorRunner.java` | `product`, `sector`, `symbols`, `streams[].stream · path` |
+| ⑤ | 소켓 생성 | `runner/CollectorRunner.java` | `product`, `sector`, `symbols`, `streams[].stream · route-prefix` |
 | ⑥ | 메시지 수신 | `collector/BinanceStreamClient.java` | — |
 | ⑦ | envelope 생성 | `service/MarketDataIngestService.java`, `model/EventEnvelope.java` | `group`, `product`, `asset-class`, `sector`, `streams[].stream` |
 | ⑧ | 발행 | `kafka/RawEventPublisher.java` | `streams[].topic` |
@@ -107,7 +107,19 @@ Spring Boot가 시작되면서 **Environment**(모든 설정값을 모아 둔 �
 
 1. jar 안의 `application.yml`(`classpath:/`)을 읽는다. → `binance.endpoint.*` 접속 도메인, `binance.subscription.*` 로컬 기본값
 2. `spring.config.additional-location`이 가리키는 `/config/application.yaml`을 읽어 같은 키를 **덮어쓴다**. → ConfigMap의 `binance.subscription.*`
-3. 환경변수(`SPRING_KAFKA_BOOTSTRAP_SERVERS`, `COLLECTOR_ID` 등)도 이 저장소에 함께 들어간다.
+3. 환경변수(`SPRING_PROFILES_ACTIVE`, `SPRING_KAFKA_BOOTSTRAP_SERVERS`, `COLLECTOR_ID` 등)도 이 저장소에 함께 들어간다.
+4. 활성 프로파일의 `application-<프로파일>.yml`을 읽는다. 프로파일을 안 주면 `local`이다 (`spring.profiles.default`).
+
+**Kafka 주소: 프로파일 + 환경변수**
+
+| 프로파일 | 켜지는 곳 | 파일 | `spring.kafka.bootstrap-servers` 기본값 |
+| --- | --- | --- | --- |
+| `local` | 아무것도 안 줄 때 (`bootRun`, `java -jar`) | `application-local.yml` | `localhost:9092` |
+| `release` | K8s — `common.yaml`의 `SPRING_PROFILES_ACTIVE: release` | `application-release.yml` | `binance-cluster-kafka-bootstrap.kafka.svc:9092` (클러스터 내부 DNS) |
+
+주소를 바꾸려면 환경변수 `SPRING_KAFKA_BOOTSTRAP_SERVERS`를 준다 (로컬: 셸에서 지정, K8s: `common.yaml`에 추가). `spring.kafka.bootstrap-servers`는 Spring 표준 키라, relaxed binding으로 이 환경변수가 자동으로 같은 키가 되고 yml보다 우선한다.
+
+이 값은 [`config/KafkaConfig.java`](../collector/src/main/java/com/ingestion/config/KafkaConfig.java)가 `Environment.getProperty("spring.kafka.bootstrap-servers", "")`로 읽어 시작할 때 `[kafka] bootstrap-servers=...` 로그로 남긴다. `spring-kafka`를 켜면 Spring Boot가 같은 키로 `KafkaTemplate`을 만든다.
 
 **`SPRING_CONFIG_ADDITIONAL_LOCATION`을 Spring이 읽는 이유** ([`deploy/Dockerfile:37`](Dockerfile#L37))
 
@@ -175,7 +187,7 @@ binance:
     symbols: [LITEUSDT, CRDOUSDT, ALABUSDT]
     streams:
       - stream: markPrice@1s
-        path: "/market"
+        route-prefix: "/market"
         topic: binance.raw.usdm.stock.markprice
 ```
 
@@ -189,16 +201,16 @@ public record Subscription(            // BinanceProperties 안의 nested record
         List<String> symbols,            // binance.subscription.symbols
         List<StreamSpec> streams) {      // binance.subscription.streams
 
-    public record StreamSpec(String stream, String path, String topic) {}   // 항목 하나 = 소켓 하나
+    public record StreamSpec(String stream, String routePrefix, String topic) {}   // 항목 하나 = 소켓 하나
 }
 ```
 
 - **kebab-case → camelCase:** `asset-class` → `assetClass`, `usdm-futures` → `usdmFutures` (relaxed binding). Java 필드 이름이 맞지 않으면 null이 들어와 ⑤에서 바로 실패한다.
 - **시작 시점 검증:** 두 record에 `@Validated`와 `@NotBlank` · `@NotNull` · `@NotEmpty`를 붙여, 값이 비어 있으면 바인딩 직후 `APPLICATION FAILED TO START`로 멈춘다. 에러에는 키와 줄 번호가 나온다 (예: `binance.subscription.sector` / `must not be blank`). 중첩 record와 `streams` 항목은 `@Valid`가 있어야 안쪽까지 검사된다.
     - `sector`도 필수다. pod 이름, pod label, 로그 라벨이 모두 섹터를 쓰기 때문이다. Spring은 yaml의 `sector: null`을 빈 문자열로 바인딩하므로 `@NotBlank`에 걸린다.
-    - `path`는 `@NotNull`이다. Spot은 접두어가 없어 `""`가 정상값이다.
+    - `route-prefix`는 `@NotNull`이다. Spot은 접두어가 없어 `""`가 정상값이다.
     - `restapiUrl`은 아직 쓰지 않아 검사하지 않는다.
-- `streams`의 각 항목은 [`StreamSpec`](../collector/src/main/java/com/ingestion/config/BinanceProperties.java#L98)이 된다.
+- `streams`의 각 항목은 [`StreamSpec`](../collector/src/main/java/com/ingestion/config/BinanceProperties.java#L99)이 된다.
 
 ---
 
@@ -208,8 +220,8 @@ Spring이 나머지 Bean을 만들면서 ③의 설정 객체를 생성자로 �
 
 | Bean | 받는 것 | 위치 |
 | --- | --- | --- |
-| `CollectorRunner` | `MarketDataIngestService`, `BinanceProperties.Endpoint`, `BinanceProperties.Subscription` | [`runner/CollectorRunner.java:46`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L46) |
-| `MarketDataIngestService` | `RawEventPublisher`, `ObjectMapper`, `BinanceProperties.Subscription`, `collectorId` | [`service/MarketDataIngestService.java:42`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L42) |
+| `CollectorRunner` | `MarketDataIngestService`, `BinanceProperties.Endpoint`, `BinanceProperties.Subscription` | [`runner/CollectorRunner.java:47`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L47) |
+| `MarketDataIngestService` | `RawEventPublisher`, `ObjectMapper`, `BinanceProperties.Subscription`, `collectorId` | [`service/MarketDataIngestService.java:39`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L39) |
 | `ingestExecutor` 스레드풀 | 코어 2개, 최대 4개 | [`config/AsyncConfig.java:19`](../collector/src/main/java/com/ingestion/config/AsyncConfig.java#L19) |
 
 `collectorId`는 `@Value("${COLLECTOR_ID:${HOSTNAME:local}}")`로 받는다. Deployment가 `COLLECTOR_ID`에 pod 이름을 넣고, 없으면 `HOSTNAME`, 로컬 실행이면 `local`이 된다.
@@ -218,20 +230,20 @@ Spring이 나머지 Bean을 만들면서 ③의 설정 객체를 생성자로 �
 
 ## ⑤ 소켓 생성 — `CollectorRunner.run()`
 
-`ApplicationRunner`를 구현했기 때문에([`CollectorRunner.java:38`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L38)), Spring이 모든 Bean을 만든 뒤 [`run()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L55)을 자동으로 호출한다.
+`ApplicationRunner`를 구현했기 때문에([`CollectorRunner.java:38`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L38)), Spring이 모든 Bean을 만든 뒤 [`run()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L60)을 자동으로 호출한다.
 
 | 줄 | 하는 일 | 쓰는 설정 |
 | --- | --- | --- |
-| [56](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L56) | 접속 도메인 고르기 → [`baseUrl()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L87) | `product` |
-| [59](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L59) | 항목마다 반복 (항목 하나 = 소켓 하나) | `streams` |
-| [63](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L63) | URL 조립: `baseUrl + path + `[`streamSuffix()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L99) | `path`, `symbols`, `stream` |
-| [72~75](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L72-L75) | `BinanceStreamClient` 생성, 로그 라벨([`streamLabel()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L109)), 메시지 콜백 등록 | `product`, `sector` |
-| [78](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L78) | `connect()` | — |
-| [82](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L82) | `CountDownLatch().await()`로 메인 스레드를 붙잡아 앱이 종료되지 않게 함 | — |
+| [61~66](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L61-L66) | 접속 도메인 고르기 (`product` → `switch`) | `product` |
+| [69](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L69) | 항목마다 반복 (항목 하나 = 소켓 하나) | `streams` |
+| [74](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L74) | URL 조립: `baseUrl + route-prefix + `[`streamSuffix()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L105) | `route-prefix`, `symbols`, `stream` |
+| [83~87](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L83-L87) | `BinanceStreamClient` 생성, 로그 라벨([`streamLabel()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L116)), 메시지 콜백 등록 | `product`, `sector` |
+| [90](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L90) | `connect()` | — |
+| [94](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L94) | `CountDownLatch().await()`로 메인 스레드를 붙잡아 앱이 종료되지 않게 함 | — |
 
 ### `product` → 접속 도메인
 
-키 이름이 다르므로(`usdm` ↔ `usdm-futures`) `baseUrl()`에서 변환한다.
+키 이름이 다르므로(`usdm` ↔ `usdm-futures`) `run()` 첫 부분의 `switch`에서 변환한다.
 
 | `product` | 사용하는 설정 | 실제 값 |
 | --- | --- | --- |
@@ -247,11 +259,11 @@ Spring이 나머지 Bean을 만들면서 ③의 설정 객체를 생성자로 �
 
 Binance 스트림 이름은 소문자 심볼을 쓰므로 `streamSuffix()`에서 소문자로 바꾼다.
 
-### `path` → 경로 접두어
+### `route-prefix` → 라우팅 접두어
 
 `baseUrl`과 `/ws`, `/stream` 사이에 들어간다. USD-M에서 꼭 맞아야 한다 — **틀려도 연결은 되고 메시지만 오지 않는다.**
 
-| product | stream | path |
+| product | stream | route-prefix |
 | --- | --- | --- |
 | spot | 전부 | `""` (접두어 없음) |
 | usdm | `bookTicker`, `depth@100ms` | `/public` |
@@ -361,7 +373,7 @@ payload는 해석하지 않는다. 모든 스트림에 공통인 `s`(심볼)와 
 
 | 단계 | 값 | 결과 |
 | --- | --- | --- |
-| ⑤ product | `spot` | `wss://stream.binance.com:9443`, path `""` |
+| ⑤ product | `spot` | `wss://stream.binance.com:9443`, route-prefix `""` |
 | ⑤ symbols | `[BTCUSDT]` (1개) | 단일 형식 `/ws/...` |
 | ⑤ streams | 3개 | 소켓 3개 |
 | ⑤⑦ sector | `sov` | 로그 라벨 `spot-sov-...`, envelope `sector: sov` ([cryptoSectorREADME.md](../../docs/symbols/cryptoSectorREADME.md)) |
@@ -381,4 +393,4 @@ socket 3  wss://stream.binance.com:9443/ws/btcusdt@depth@100ms  → binance.raw.
 | --- | --- | --- | --- |
 | 1 | `spring-kafka` 의존성을 켜고 `KafkaTemplate`으로 실제 발행 | ⑧ | `build.gradle`, `kafka/RawEventPublisher.java` |
 | 2 | `@Async` 스레드풀(2~4개)이 같은 심볼의 메시지 순서를 섞을 수 있음. 콜백 스레드에서 바로 발행하거나 소켓별 단일 스레드로 변경 | ⑥ → ⑦ | `service/MarketDataIngestService.java`, `config/AsyncConfig.java` |
-| 3 | `path`, `topic`은 Binance 규칙과 토픽 이름 규칙에서 정해지는 값 → ConfigMap에서 빼고 코드가 계산하도록 단순화 검토 | ⑤, ⑧ | `deploy/<group>/*.yaml` |
+| 3 | `route-prefix`, `topic`은 Binance 규칙과 토픽 이름 규칙에서 정해지는 값 → ConfigMap에서 빼고 코드가 계산하도록 단순화 검토 | ⑤, ⑧ | `deploy/<group>/*.yaml` |
