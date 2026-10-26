@@ -1,48 +1,47 @@
-# collector — Insight 1-1용 원시 데이터 수집 POC (Spot-Futures)
+# collector — Binance raw 이벤트 수집 앱
 
-`datasource-ingestion/README.md`에서 설명하는 `core/` + `app/ingestion-runner` 구조로 쪼개기 전,
-**심볼 하나**만 갖고 파이프라인이 실제로 동작하는지 확인하기 위한 단일 프로세스 POC다. 심볼은
-`app.symbol` 설정(기본값 BTCUSDT)으로 정해지며 코드 수정 없이 실행 인자로 바꿀 수 있다.
+Binance WebSocket을 구독해서 받은 메시지를 **원본 그대로** envelope로 감싸 Kafka raw 토픽에 보내는
+단일 Spring Boot 앱이다. 어떤 product의 어떤 심볼을, 어떤 스트림으로 받아서 어느 토픽에 보낼지는
+코드가 아니라 `binance.subscription.*` 설정이 정한다 — variable-rate / fixed-rate pod는 같은 이미지에 설정만
+다르게 넣어서 띄운다.
 
-이 앱은 **producer**다 — Spot/USD-M 스트림을 구독해서 파싱한 raw 이벤트를 각자 토픽에 올리기만
-한다. Spot mid price와 mark price를 조합해 basis를 계산하는 건 이 앱의 책임이 아니라, 두 raw
-토픽을 구독하는 컨슈머(Kafka Streams `basis-join`, [1_1_plan.md §4.5](../../Insights/1.spot_futures_basis/1_1_plan.md#45-kafka-토픽--다운스트림))가 할 일이다. 그래서 코드/클래스명에 "basis"를
-쓰지 않는다.
+이 앱은 **producer**다 — payload를 해석하지 않고 옮기기만 한다. Active-Active 중복 제거,
+Spot mid price와 mark price를 조합하는 basis 계산 같은 일은 이 앱의 책임이 아니라 raw 토픽을
+구독하는 별도 Flink 앱의 책임이다. 그래서 스트림별 모델 클래스도 없다.
 
-- Spot `<symbol>@bookTicker` (`stream.binance.com`)와 USD-M `<symbol>@markPrice@1s`
-  (`fstream.binance.com`) 두 WebSocket에 붙는다.
-- 수신한 이벤트를 파싱해서 로그로 남기고, 그대로 raw 이벤트로 발행한다 (조합·계산 없음).
-- Kafka는 아직 붙이지 않았다. `kafka/RawEventPublisher`가 무엇을 어떤 토픽/키로 보낼지
-  로그로만 찍고, 실제 `KafkaTemplate.send()` 호출은 아직 없다.
-- 지금은 Pod 단위 분리, Active-Active, Redis dedup 없이 **한 프로세스가 두 스트림을 다 처리**한다
-  (Insight 1-1 계획의 §4.2~4.4는 다음 단계).
+- `binance.subscription.streams` 항목 하나마다 WebSocket 소켓을 하나씩 연다.
+- 심볼이 1개면 단일 스트림(`/ws/...`), 여러 개면 combined 스트림(`/stream?streams=...`)으로 붙는다.
+- 수신한 메시지에서 모든 스트림에 공통인 심볼(`s`)과 이벤트 시각(`E`)만 꺼내 envelope를 만든다.
+- Kafka는 아직 붙이지 않았다. `kafka/RawEventPublisher`가 어떤 토픽/키로 보낼지 로그로만 찍고,
+  실제 `KafkaTemplate.send()` 호출은 아직 없다.
+
+설정 값이 코드 어디로 들어가는지는 [deploy/mapping.md](../deploy/mapping.md)에 정리돼 있다.
 
 ## 패키지 구조
 
 ```
 collector/
+├── config/ethusdt.yml                        # 로컬에서 다른 심볼로 실행해보는 예시 설정
 └── src/main/java/com/ingestion/
     ├── IngestionCollectorApplication.java   # main() — SpringApplication 부트스트랩
     ├── config/
-    │   └── CollectorProperties.java         # app.symbol 바인딩 (@ConfigurationProperties)
+    │   ├── BinanceProperties.java           # binance.* — Endpoint(접속 도메인, 환경별) · Subscription(구독 설정, pod별)
+    │   └── AsyncConfig.java                 # 메시지 처리용 스레드풀
     ├── runner/
-    │   └── CollectorRunner.java          # 진입 로직 — ApplicationRunner.run()에서
-    │                                         #   URI 조립 → WebSocket 연결 → 메시지 콜백 등록
+    │   └── CollectorRunner.java             # streams를 돌며 URL 조립 → 소켓 연결
     ├── collector/
     │   └── BinanceStreamClient.java         # WebSocket 클라이언트 (연결·재연결·수신)
-    ├── model/
-    │   ├── SpotBookTicker.java              # spot bookTicker 페이로드 (record)
-    │   └── MarkPriceUpdate.java             # usdm markPrice 페이로드 (record)
     ├── service/
-    │   └── MarketDataIngestService.java     # 수신 로깅 + 발행 위임 (계산 없음)
+    │   └── MarketDataIngestService.java     # combined 메시지 풀기 → envelope 생성 → 발행 위임
+    ├── model/
+    │   └── EventEnvelope.java               # 공통 envelope (payload는 원본 그대로)
     └── kafka/
         └── RawEventPublisher.java           # raw 이벤트 발행 지점 (지금은 로그만)
 ```
 
 패키지 하나 = 역할 하나로 나뉜다: `config`(설정) → `runner`(오케스트레이션) → `collector`(전송)
-→ `model`(파싱) → `service`(로깅/위임) → `kafka`(발행). 데이터는 이 순서대로 흐른다 — 자세한 실행
-흐름은 아래 "실행"보다는 코드 자체의 호출 순서(`CollectorRunner.run()`부터)를 따라가는 게 빠르다.
-basis 계산은 여기 어디에도 없다 — 위 설명대로 다운스트림 컨슈머의 몫이다.
+→ `service`(envelope 생성) → `kafka`(발행). 데이터는 이 순서대로 흐른다 — 자세한 흐름은
+`CollectorRunner.run()`부터 호출 순서를 따라가는 게 빠르다.
 
 ## 실행
 
@@ -54,30 +53,29 @@ basis 계산은 여기 어디에도 없다 — 위 설명대로 다운스트림 
 
 ### 실행 방법
 
-기본값(BTCUSDT)으로 실행:
+기본값으로 실행 — `application.yml`의 `binance.subscription` 기본값은 `spot-sov` pod와 같다
+(Spot BTCUSDT의 bookTicker · trade · depth@100ms, 소켓 3개):
 
 ```bash
 cd collector
 ./gradlew bootRun
 ```
 
-다른 심볼로 실행하려면 `--app.symbol` 인자를 덮어쓴다 (예: ETHUSDT):
+다른 구독 설정으로 실행하려면 설정 파일을 추가로 불러온다. 불러온 파일의 `binance.subscription` 블록이
+기본값을 덮어쓴다 (예: ETHUSDT bookTicker만):
 
 ```bash
-./gradlew bootRun --args='--app.symbol=ethusdt'
+./gradlew bootRun --args='--spring.config.additional-location=config/ethusdt.yml'
 ```
 
-`collector/config/ethusdt.yml`처럼 심볼별 설정 파일을 만들어두고 그걸 불러올 수도 있다:
-
-```bash
-./gradlew bootRun --args='--spring.config.location=config/ethusdt.yml'
-```
+`deploy/`의 ConfigMap에 들어 있는 `application.yaml` 내용을 파일로 저장해서 같은 방법으로 불러오면,
+해당 pod와 똑같은 구독으로 로컬에서 띄워볼 수 있다.
 
 빌드된 jar로 바로 실행할 때도 동일한 인자를 쓴다:
 
 ```bash
 ./gradlew build -x test
-java -jar build/libs/ingestion-collector-0.0.1-SNAPSHOT.jar --app.symbol=ethusdt
+java -jar build/libs/ingestion-collector-0.0.1-SNAPSHOT.jar --spring.config.additional-location=config/ethusdt.yml
 ```
 
 Windows에서는 `gradlew.bat bootRun`을 쓴다.
@@ -86,24 +84,31 @@ Windows에서는 `gradlew.bat bootRun`을 쓴다.
 같은 로그가 계속 찍히는지로 동작을 확인한다.
 
 ```
-[SPOT ] BTCUSDT bid=... ask=... mid=...                          # Spot bookTicker 수신
-[KAFKA:SKIPPED] topic=binance.raw.bookticker key=spot:BTCUSDT     # raw 이벤트 발행 (지금은 로그만)
-[FUT  ] BTCUSDT markPrice=... fundingRate=...                     # USD-M markPrice 수신
-[KAFKA:SKIPPED] topic=binance.raw.markprice key=usdm:BTCUSDT      # raw 이벤트 발행 (지금은 로그만)
+[spot-sov-bookTicker] connecting to wss://stream.binance.com:9443/ws/btcusdt@bookTicker   # 소켓 연결
+[spot-sov-bookTicker] connected
+[variable-rate] bookTicker BTCUSDT event_time=null                                            # 메시지 수신
+[KAFKA:SKIPPED] topic=binance.raw.spot.crypto.bookticker key=BTCUSDT                          # 발행 (지금은 로그만)
+[variable-rate] trade BTCUSDT event_time=1792724161600
+[KAFKA:SKIPPED] topic=binance.raw.spot.crypto.trade key=BTCUSDT
 ```
 
-두 스트림은 서로 기다리지 않고 각자 받는 즉시 바로 발행된다 (조인 없음).
-
-- `[SPOT]`만 계속 찍히고 `[FUT]`가 안 보인다면 markPrice 스트림이 막힌 환경일 수 있다
-  (아래 "확인된 것 / 안 된 것" 참고).
-- 아무 로그도 안 찍히면 네트워크(방화벽/프록시)가 `wss://` 접속을 막고 있는지 먼저 의심한다.
+- Spot bookTicker는 원본에 이벤트 시각(`E`)이 없어서 `event_time=null`로 찍힌다 (정상).
+- 섹터 설정(심볼 여러 개)으로 띄우면 소켓 하나에서 여러 심볼이 섞여 오고, 키도 심볼별로 나뉜다
+  (`key=LITEUSDT`, `key=CRDOUSDT`, ...).
+- `connected`까지 찍히는데 메시지가 안 오면 USD-M 경로 접두어(`/public`, `/market`)가 스트림과
+  맞는지 먼저 확인한다 — 틀려도 연결은 된다.
+- 아무 로그도 안 찍히면 네트워크(방화벽/프록시)가 `wss://` 접속을 막고 있는지 의심한다.
 - 종료는 `Ctrl+C`.
 
-## 확인된 것 / 안 된 것
+## 확인된 것
 
-- Spot bookTicker는 이 환경에서 연결·수신이 정상 동작을 확인했다.
-- USD-M `markPrice` 계열 WebSocket(`markPrice`, `markPrice@1s`, `!markPrice@arr`, combined stream
-  전부)은 핸드셰이크(OPEN)까지는 성공하지만 이 개발 환경에서는 데이터가 전혀 내려오지 않았다.
-  같은 환경에서 `fapi.binance.com` REST(`/fapi/v1/premiumIndex`)는 정상 응답하므로, WS 연결 자체가
-  막힌 게 아니라 이 네트워크에서 파생상품 스트리밍 데이터만 걸러지는 것으로 보인다(지역 제한 등
-  Binance 쪽 정책 가능성). 실제 배포/실행 환경에서 다시 확인이 필요하다.
+로컬 환경에서 실제 Binance에 붙여 아래 조합의 연결·수신을 확인했다.
+
+| product | 심볼 | 스트림 | 형식 |
+| --- | --- | --- | --- |
+| Spot | BTCUSDT | bookTicker, trade, depth@100ms | 단일 |
+| USD-M | NVDA · AVGO · MRVL | bookTicker, depth@100ms (`/public`), aggTrade (`/market`) | combined |
+| USD-M | LITE · CRDO · ALAB | markPrice@1s (`/market`) | combined |
+
+예전에 USD-M markPrice가 연결만 되고 데이터가 오지 않았던 건, `/market` 경로 접두어 없이 붙었기
+때문이다. 접두어를 넣은 뒤로는 정상 수신된다.

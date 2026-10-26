@@ -5,11 +5,11 @@ kind: Kustomization
 resources:
   - common.yaml
   # variable-rate · Active-Active (replicas 2)
-  - variable-rate/spot-btcusdt.yaml
-  - variable-rate/usdm-btcusdt.yaml
-  - variable-rate/usdm-stock-optical.yaml
-  - variable-rate/usdm-stock-semi.yaml
+  - variable-rate/spot-sov.yaml
+  - variable-rate/usdm-sov.yaml
+  - variable-rate/usdm-optical.yaml
+  - variable-rate/usdm-semi.yaml
   # fixed-rate · Active-Standby (replicas 1)
-  - fixed-rate/markprice-usdm-crypto.yaml
-  - fixed-rate/markprice-usdm-stock-optical.yaml
-  - fixed-rate/markprice-usdm-stock-semi.yaml
+  - fixed-rate/markprice-usdm-sov.yaml
+  - fixed-rate/markprice-usdm-optical.yaml
+  - fixed-rate/markprice-usdm-semi.yaml

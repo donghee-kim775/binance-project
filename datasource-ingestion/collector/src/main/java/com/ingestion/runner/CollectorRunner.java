@@ -1,6 +1,8 @@
 package com.ingestion.runner;
 
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 import org.springframework.boot.ApplicationArguments;
@@ -12,19 +14,21 @@ import jakarta.annotation.PreDestroy;
 
 import com.ingestion.collector.BinanceStreamClient;
 import com.ingestion.config.BinanceProperties;
+import com.ingestion.config.BinanceProperties.Subscription.StreamSpec;
 import com.ingestion.service.MarketDataIngestService;
 
 /**
- * 수집기(producer) POC 진입점. {@link BinanceProperties}로 받은 심볼 하나에 대해 Spot bookTicker와
- * USD-M markPrice 두 스트림을 붙여 raw 이벤트를 {@link MarketDataIngestService}로 넘긴다.
- * 파싱·발행은 여기서 하지 않는다 — {@link MarketDataIngestService#onRawSpotBookTicker}가
- * @Async로 별도 스레드풀에서 처리한다 (WebSocket 콜백 스레드를 파싱으로 묶어두지 않기 위함).
+ * 수집기(producer) 진입점. {@link BinanceProperties.Subscription}의 streams 항목마다 WebSocket 소켓을 하나씩
+ * 열고, 받은 raw 메시지를 {@link MarketDataIngestService}로 넘긴다. 어떤 스트림을 열지는 코드가
+ * 아니라 config가 정한다 — variable-rate / fixed-rate pod는 같은 이 코드에 ConfigMap만 다르게 넣는다
+ * (datasource-ingestion/deploy/mapping.md 참고).
  *
- * spot과 futures 값을 조합하는 basis 계산도 여기 없다 — 그건 이 producer가 올린 두 raw 토픽을
- * 구독하는 컨슈머(Kafka Streams basis-join)가 한다 (Insights/1.spot_futures_basis/1_1_plan.md §4.5 참고).
+ * 파싱·발행은 여기서 하지 않는다 — {@link MarketDataIngestService#onRaw}가 @Async로 별도
+ * 스레드풀에서 처리한다 (WebSocket 콜백 스레드를 파싱으로 묶어두지 않기 위함). 수신 시각만은
+ * 큐 대기 시간이 섞이지 않도록 콜백 스레드에서 바로 찍어서 넘긴다.
  *
- * product+symbol별 Pod 분리, Active-Active, Redis dedup(1_1_plan.md §4.2~4.4)은
- * 아직 적용하지 않은 단일 프로세스 버전이다.
+ * 이 앱은 raw를 그대로 옮기기만 한다 — 중복 제거(Active-Active), basis 계산 같은 조인은
+ * 다운스트림 Flink 앱의 책임이다.
  *
  * run()이 끝나지 않고 계속 떠 있어야 하는 프로세스라, "test" 프로필에서는 비활성화한다 —
  * 그렇지 않으면 @SpringBootTest로 컨텍스트를 띄울 때마다 테스트가 영원히 끝나지 않는다.
@@ -34,42 +38,81 @@ import com.ingestion.service.MarketDataIngestService;
 public class CollectorRunner implements ApplicationRunner {
 
     private final MarketDataIngestService ingestService;
-    private final BinanceProperties properties;
+    private final BinanceProperties.Endpoint endpoint;
+    private final BinanceProperties.Subscription subscription;
 
-    private BinanceStreamClient spotClient;
-    private BinanceStreamClient markPriceClient;
+    private final List<BinanceStreamClient> clients = new ArrayList<>();
 
-    public CollectorRunner(MarketDataIngestService ingestService, BinanceProperties properties) {
+    // 객체 생성자
+    public CollectorRunner(MarketDataIngestService ingestService,
+                           BinanceProperties.Endpoint endpoint,
+                           BinanceProperties.Subscription subscription) {
+        // 주소 참조
         this.ingestService = ingestService;
-        this.properties = properties;
+        this.endpoint = endpoint;
+        this.subscription = subscription;
     }
 
+    // 현재 args는 쓰지 않는다. 무엇을 구독할지는 생성자로 주입받은 설정이 정한다
+    //  - endpoint     (binance.endpoint.*)     : jar의 application.yml
+    //  - subscription (binance.subscription.*) : application.yml 기본값을 K8s ConfigMap이 덮어씀
     @Override
     public void run(ApplicationArguments args) throws InterruptedException {
-        String symbol = properties.setup().symbol().toLowerCase();
+        String baseUrl = baseUrl(subscription.product());
 
-        // "/market" 경로 접두어 필수 — 접두어 없는 연결은 /public 데이터만 받는데 markPrice는
-        // /market(일반) 카테고리라 접두어 없이는 연결만 되고 메시지가 전혀 안 온다.
-        // (developers.binance.com USDⓈ-M Futures WebSocket Market Streams 문서 참고)
-        URI spotBookTickerUri = URI.create(properties.meta().spot().websocketStreamUrl() + "/ws/" + symbol + "@bookTicker");
-        URI usdmMarkPriceUri = URI.create(properties.meta().usdmFutures().websocketStreamUrl() + "/market/ws/" + symbol + "@markPrice@1s");
-        
-        // BinanceStreamClient
-        // parameter 1 : streamlabel
-        // parameter 2 : websocket uri
-        // parameter 3 : onMessage callback
-        spotClient = new BinanceStreamClient("spot-bookTicker-" + symbol, 
-                                            spotBookTickerUri, 
-                                            ingestService::onRawSpotBookTicker);
-        markPriceClient = new BinanceStreamClient("usdm-markPrice-" + symbol,
-                                                usdmMarkPriceUri,
-                                                ingestService::onRawMarkPrice);
+        // streams 항목 하나 = 소켓 하나
+        for (StreamSpec spec : subscription.streams()) {
+            // baseUrl + path(/public · /market · "") + /ws/... 또는 /stream?streams=...
+            // USD-M은 path 접두어를 틀리면 연결만 되고 메시지가 전혀 안 온다
+            // (developers.binance.com USDⓈ-M Futures WebSocket Market Streams 문서 참고)
+            URI uri = URI.create(baseUrl + spec.path() + streamSuffix(spec.stream()));
 
-        spotClient.connect();
-        markPriceClient.connect();
+            // BinanceStreamClient
+            // parameter 1 : streamlabel  
+            // (예: 
+            //  - "usdm-optical-markPrice@1s"
+            //  - "spot-sov-bookTicker")
+            // parameter 2 : websocket uri
+            // parameter 3 : onMessage callback — 수신 시각은 콜백 스레드에서 바로 찍는다
+            BinanceStreamClient client = new BinanceStreamClient(
+                    streamLabel(spec),
+                    uri,
+                    raw -> ingestService.onRaw(spec, raw, System.currentTimeMillis()));
+
+            clients.add(client);
+            client.connect();
+        }
 
         // WebSocket 연결은 비동기라 메인 스레드를 잡아두지 않으면 앱이 바로 종료된다.
         new CountDownLatch(1).await();
+    }
+
+    // ── URL 조립 ─────────────────────────────────────────────
+    // * product → 접속 도메인. 설정 키 이름이 달라(usdm ↔ usdm-futures) 여기서 변환한다
+    private String baseUrl(String product) {
+        return switch (product) {
+            case "spot" -> endpoint.spot().wssUrl();
+            case "usdm" -> endpoint.usdmFutures().wssUrl();
+            default -> throw new IllegalArgumentException("unknown product: " + product);
+        };
+    }
+
+    // * symbols → 스트림 경로. Binance 스트림 이름은 소문자 심볼을 쓴다
+    //   심볼 1개    : /ws/btcusdt@bookTicker
+    //   심볼 여러 개 : /stream?streams=liteusdt@markPrice@1s/crdousdt@markPrice@1s/...
+    //                 (combined — 메시지가 {"stream": ..., "data": {...}}로 한 겹 감싸져 온다)
+    private String streamSuffix(String stream) {
+        List<String> names = subscription.symbols().stream()
+                .map(symbol -> symbol.toLowerCase() + "@" + stream)
+                .toList();
+        return names.size() == 1
+                ? "/ws/" + names.get(0)
+                : "/stream?streams=" + String.join("/", names);
+    }
+
+    // * 로그 구분용 라벨 — pod 이름과 같이 섹터(sov, optical)로 구분한다 (예: usdm-optical-bookTicker)
+    private String streamLabel(StreamSpec spec) {
+        return subscription.product() + "-" + subscription.sector() + "-" + spec.stream();
     }
 
     /**
@@ -78,11 +121,6 @@ public class CollectorRunner implements ApplicationRunner {
      */
     @PreDestroy
     public void shutdown() {
-        if (spotClient != null) {
-            spotClient.close();
-        }
-        if (markPriceClient != null) {
-            markPriceClient.close();
-        }
+        clients.forEach(BinanceStreamClient::close);
     }
 }

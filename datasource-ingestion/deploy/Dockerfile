@@ -30,7 +30,10 @@ COPY --from=build /workspace/app.jar app.jar
 
 # 컨테이너 메모리 limit 기준으로 힙 크기를 잡는다
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0"
-# ConfigMap이 마운트되는 위치. 파일이 없어도 기동되도록 optional
+
+# ConfigMap이 마운트되는 위치. 파일이 없어도 기동되도록 optional 
+# volumes (application-config) : application.yaml
+# mountPath: /config
 ENV SPRING_CONFIG_ADDITIONAL_LOCATION="optional:file:/config/"
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
