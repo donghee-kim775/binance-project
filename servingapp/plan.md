@@ -1,6 +1,6 @@
 # Serving App — 실시간 인사이트 서빙 계층 설계
 
-> 데이터 원본: [Insight 1-1 plan.md](../Insights/1.spot_futures_basis/1_1_plan.md) §4.5의
+> 데이터 원본: [Insight 1-1 plan.md](../Insights/1.spot_futures_basis/1_1_plan.md) §4.4의
 > `market.analytics.basis` 토픽 (Kafka Streams `basis-join`이 계산한 z-score/베이시스 결과)
 
 Ingestion → Kafka Streams(분석)까지는 설계가 끝났지만, 그 결과를 **사용자가 웹사이트에서 실시간으로
@@ -88,6 +88,6 @@ Pod들은 Kafka를 몰라도 되게 분리해 Gateway 쪽 책임을 "커넥션 �
   허용 가능하다고 보되, 유실 시에도 다음 업데이트에서 자연히 복구되는지 확인 필요.
 - 인증/인가(누가 어떤 심볼을 볼 수 있는지)는 이 프로젝트 스코프에서 아직 다루지 않음 — 학습 목적
   단일 사용자 가정으로 우선 진행.
-- Gateway 자체의 Active-Active/스케일 정책은 [Insight 1-1 plan.md §4.3](../Insights/1.spot_futures_basis/1_1_plan.md#43-고려-사항-2--fail-over--ha-구조)의 Ingestion Pod HA 논의와는
+- Gateway 자체의 Active-Active/스케일 정책은 [ingestion/plan.md 고려 사항 2](../plan/ingestion/plan.md)의 Ingestion Pod HA 논의와는
   별개로, Gateway는 상태를 안 들고 있는 stateless 구조라 단순 replica 스케일만으로 충분할 것으로
   보임 (재검토 필요).

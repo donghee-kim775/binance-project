@@ -1,45 +1,43 @@
-# usdm-stock-optical — variable-rate · Active-Active (replicas 2)
+# usdm-optical — variable-rate · Active-Active (replicas 2)
 # 구독: LITE, CRDO, ALAB × bookTicker · aggTrade · depth@100ms  (소켓 3개)
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: usdm-stock-optical-config
+  name: usdm-optical-config
   namespace: binance-ingestion
   labels:
     app.kubernetes.io/name: ingestion-collector
-    app.kubernetes.io/instance: usdm-stock-optical
+    app.kubernetes.io/instance: usdm-optical
     rate-group: variable
 data:
   # /config/application.yaml로 마운트되어 이미지 안의 application.yml을 덮어쓴다
   application.yaml: |
     binance:
-      setup:
-        symbol: LITEUSDT   # 현재 POC가 읽는 유일한 값 (아래 ingestion.* 은 runner 리팩터링 후 사용)
-    ingestion:
-      group: variable-rate
-      product: usdm
-      asset-class: stock
-      sector: optical
-      symbols: [LITEUSDT, CRDOUSDT, ALABUSDT]
-      streams:
-        - stream: bookTicker
-          path: "/public"
-          topic: binance.raw.usdm.stock.bookticker
-        - stream: aggTrade
-          path: "/market"
-          topic: binance.raw.usdm.stock.aggtrade
-        - stream: depth@100ms
-          path: "/public"
-          topic: binance.raw.usdm.stock.depth
+      subscription:
+        group: variable-rate
+        product: usdm
+        asset-class: stock
+        sector: optical
+        symbols: [LITEUSDT, CRDOUSDT, ALABUSDT]
+        streams:
+          - stream: bookTicker
+            path: "/public"
+            topic: binance.raw.usdm.stock.bookticker
+          - stream: aggTrade
+            path: "/market"
+            topic: binance.raw.usdm.stock.aggtrade
+          - stream: depth@100ms
+            path: "/public"
+            topic: binance.raw.usdm.stock.depth
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: usdm-stock-optical
+  name: usdm-optical
   namespace: binance-ingestion
   labels:
     app.kubernetes.io/name: ingestion-collector
-    app.kubernetes.io/instance: usdm-stock-optical
+    app.kubernetes.io/instance: usdm-optical
     rate-group: variable
 spec:
   replicas: 2   # Active-Active: 두 pod가 같은 스트림을 동시에 수신 (중복은 dedup에서 제거)
@@ -50,15 +48,16 @@ spec:
       maxSurge: 1
   selector:
     matchLabels:
-      app.kubernetes.io/instance: usdm-stock-optical
+      app.kubernetes.io/instance: usdm-optical
   template:
     metadata:
       labels:
         app.kubernetes.io/name: ingestion-collector
-        app.kubernetes.io/instance: usdm-stock-optical
+        app.kubernetes.io/instance: usdm-optical
         rate-group: variable
         product: usdm
         asset-class: stock
+        sector: optical
     spec:
       # 두 replica를 서로 다른 노드에 배치 → 노드 1대가 죽어도 하나는 수신을 이어감
       topologySpreadConstraints:
@@ -67,7 +66,7 @@ spec:
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
-              app.kubernetes.io/instance: usdm-stock-optical
+              app.kubernetes.io/instance: usdm-optical
       terminationGracePeriodSeconds: 30   # @PreDestroy에서 WebSocket close 프레임을 보낼 시간
       securityContext:
         runAsNonRoot: true
@@ -90,26 +89,26 @@ spec:
             limits:
               memory: 512Mi
           volumeMounts:
-            - name: config
+            - name: application-config
               mountPath: /config
               readOnly: true
       volumes:
-        - name: config
+        - name: application-config
           configMap:
-            name: usdm-stock-optical-config
+            name: usdm-optical-config
 ---
 # 노드 drain 등 자발적 중단 시에도 최소 1개는 남겨 둔다
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: usdm-stock-optical
+  name: usdm-optical
   namespace: binance-ingestion
   labels:
     app.kubernetes.io/name: ingestion-collector
-    app.kubernetes.io/instance: usdm-stock-optical
+    app.kubernetes.io/instance: usdm-optical
     rate-group: variable
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app.kubernetes.io/instance: usdm-stock-optical
+      app.kubernetes.io/instance: usdm-optical

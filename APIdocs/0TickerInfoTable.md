@@ -22,6 +22,8 @@ Collector가 수집할 심볼 목록이다. 2026-10-20에 아래 API의 `exchang
 
 ## 1. 비트코인
 
+envelope `sector`: `sov` (코인 섹터 분류는 [cryptoSectorREADME.md](cryptoSectorREADME.md))
+
 | 시장 | 심볼 | 종류 | 결제 자산 | WSS 도메인 |
 | --- | --- | --- | --- | --- |
 | Spot | `BTCUSDT` | 현물 | USDT | `stream.binance.com:9443` |

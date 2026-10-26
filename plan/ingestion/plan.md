@@ -132,12 +132,14 @@ Stream 별로 application 을 만들어서 1:1 로 관리해야하나? `topic <-
 
 | 그룹 | 스트림 | 묶는 단위 | HA | replicas | pod 이름 규칙 |
 | --- | --- | --- | --- | --- | --- |
-| variable-rate | bookTicker, trade(aggTrade), depth | crypto는 심볼, stock은 섹터 | Active-Active | 2 | `<product>-<심볼>`, `<product>-stock-<섹터>` |
-| fixed-rate | markPrice@1s | crypto / stock 섹터 | Active-Standby | 1 | `markprice-<product>-<crypto \| stock-섹터>` |
+| variable-rate | bookTicker, trade(aggTrade), depth | 섹터 (crypto `sov`는 지금 BTC 하나) | Active-Active | 2 | `<product>-<섹터>` |
+| fixed-rate | markPrice@1s | 섹터 | Active-Standby | 1 | `markprice-<product>-<섹터>` |
 
 - variable-rate pod 하나는 **스트림 종류마다 소켓 1개씩, 총 3개**를 연다. 섹터 pod는 같은 스트림의 심볼들을 combined stream 하나로 묶는다.
 - fixed-rate pod는 섹터에 속한 심볼의 `<symbol>@markPrice@1s`만 combined로 구독한다 (`!markPrice@arr` 전체 구독 후 필터링하지 않음).
 - stock은 기초 시장 장외 시간에 트래픽이 거의 없어 심볼별이 아니라 섹터별로 묶는다.
+- pod 이름은 crypto와 stock 모두 섹터로 짓고 자산 종류는 넣지 않는다 (`usdm-optical`, `markprice-usdm-sov`). 자산 종류는 pod label `asset-class`와 토픽 이름에 있다. 그래서 **섹터 값은 자산 종류끼리 겹치지 않게** 정한다 (crypto 섹터 값은 [cryptoSectorREADME.md](../../APIdocs/cryptoSectorREADME.md)). 로그 라벨 `<product>-<섹터>-<stream>`도 pod 이름과 같은 앞부분을 쓴다. crypto는 심볼 하나의 트래픽이 크므로, 같은 섹터에 심볼을 추가할 때 한 pod로 묶을지 섹터 안에서 pod를 나눌지 그때 다시 판단한다.
+- pod template에는 `product`, `asset-class`, `sector` label을 붙여 `kubectl get pods -L sector`, `-l sector=optical`로 조회한다.
 
 ### 구성도
 
@@ -150,17 +152,17 @@ flowchart LR
 
     subgraph VR["variable-rate · Active-Active (replicas 2)"]
         direction TB
-        P1["spot-btcusdt ×2<br/>bookTicker · trade · depth"]
-        P2["usdm-btcusdt ×2<br/>bookTicker · aggTrade · depth"]
-        P3["usdm-stock-optical ×2<br/>LITE · CRDO · ALAB<br/>bookTicker · aggTrade · depth"]
-        P4["usdm-stock-semi ×2<br/>NVDA · AVGO · MRVL<br/>bookTicker · aggTrade · depth"]
+        P1["spot-sov ×2<br/>bookTicker · trade · depth"]
+        P2["usdm-sov ×2<br/>bookTicker · aggTrade · depth"]
+        P3["usdm-optical ×2<br/>LITE · CRDO · ALAB<br/>bookTicker · aggTrade · depth"]
+        P4["usdm-semi ×2<br/>NVDA · AVGO · MRVL<br/>bookTicker · aggTrade · depth"]
     end
 
     subgraph FR["fixed-rate · Active-Standby (replicas 1)"]
         direction TB
-        P5["markprice-usdm-crypto ×1<br/>BTCUSDT"]
-        P6["markprice-usdm-stock-optical ×1<br/>LITE · CRDO · ALAB"]
-        P7["markprice-usdm-stock-semi ×1<br/>NVDA · AVGO · MRVL"]
+        P5["markprice-usdm-sov ×1<br/>BTCUSDT"]
+        P6["markprice-usdm-optical ×1<br/>LITE · CRDO · ALAB"]
+        P7["markprice-usdm-semi ×1<br/>NVDA · AVGO · MRVL"]
     end
 
     subgraph K["Kafka raw 토픽"]
@@ -185,10 +187,10 @@ flowchart LR
     K --> F["Flink dedup"] --> C["binance.clean.*"]
 ```
 
-### pod 하나의 내부 (usdm-stock-semi 예시)
+### pod 하나의 내부 (usdm-semi 예시)
 
 ```text
-┌──────────────────────── pod: usdm-stock-semi-8c5d7e9f1-g5h6i ────────────────────────┐
+┌──────────────────────── pod: usdm-semi-8c5d7e9f1-g5h6i ────────────────────────┐
 │                                                                                      │
 │  socket 1  /public/stream?streams=nvdausdt@bookTicker/avgousdt@bookTicker/mrvlusdt@bookTicker
 │     └──> parser(bookTicker) ──> binance.raw.usdm.stock.bookticker                    │
@@ -208,13 +210,13 @@ flowchart LR
 
 | Deployment | 그룹 | replicas | 소켓 수 | 쓰는 토픽 |
 | --- | --- | --- | --- | --- |
-| `spot-btcusdt` | variable-rate | 2 | 3 | `binance.raw.spot.crypto.{bookticker,trade,depth}` |
-| `usdm-btcusdt` | variable-rate | 2 | 3 | `binance.raw.usdm.crypto.{bookticker,aggtrade,depth}` |
-| `usdm-stock-optical` | variable-rate | 2 | 3 | `binance.raw.usdm.stock.{bookticker,aggtrade,depth}` |
-| `usdm-stock-semi` | variable-rate | 2 | 3 | `binance.raw.usdm.stock.{bookticker,aggtrade,depth}` |
-| `markprice-usdm-crypto` | fixed-rate | 1 | 1 | `binance.raw.usdm.crypto.markprice` |
-| `markprice-usdm-stock-optical` | fixed-rate | 1 | 1 | `binance.raw.usdm.stock.markprice` |
-| `markprice-usdm-stock-semi` | fixed-rate | 1 | 1 | `binance.raw.usdm.stock.markprice` |
+| `spot-sov` | variable-rate | 2 | 3 | `binance.raw.spot.crypto.{bookticker,trade,depth}` |
+| `usdm-sov` | variable-rate | 2 | 3 | `binance.raw.usdm.crypto.{bookticker,aggtrade,depth}` |
+| `usdm-optical` | variable-rate | 2 | 3 | `binance.raw.usdm.stock.{bookticker,aggtrade,depth}` |
+| `usdm-semi` | variable-rate | 2 | 3 | `binance.raw.usdm.stock.{bookticker,aggtrade,depth}` |
+| `markprice-usdm-sov` | fixed-rate | 1 | 1 | `binance.raw.usdm.crypto.markprice` |
+| `markprice-usdm-optical` | fixed-rate | 1 | 1 | `binance.raw.usdm.stock.markprice` |
+| `markprice-usdm-semi` | fixed-rate | 1 | 1 | `binance.raw.usdm.stock.markprice` |
 
 ### pod별 구독 웹소켓
 
@@ -229,22 +231,22 @@ USD-M은 스트림 종류에 따라 경로 접두어가 다르다. 접두어를 
 #### variable-rate
 
 ```text
-spot-btcusdt  (×2)
+spot-sov  (×2)
  ├─ socket 1  wss://stream.binance.com:9443/ws/btcusdt@bookTicker
  ├─ socket 2  wss://stream.binance.com:9443/ws/btcusdt@trade
  └─ socket 3  wss://stream.binance.com:9443/ws/btcusdt@depth@100ms
 
-usdm-btcusdt  (×2)
+usdm-sov  (×2)
  ├─ socket 1  wss://fstream.binance.com/public/ws/btcusdt@bookTicker
  ├─ socket 2  wss://fstream.binance.com/market/ws/btcusdt@aggTrade
  └─ socket 3  wss://fstream.binance.com/public/ws/btcusdt@depth@100ms
 
-usdm-stock-optical  (×2)
+usdm-optical  (×2)
  ├─ socket 1  wss://fstream.binance.com/public/stream?streams=liteusdt@bookTicker/crdousdt@bookTicker/alabusdt@bookTicker
  ├─ socket 2  wss://fstream.binance.com/market/stream?streams=liteusdt@aggTrade/crdousdt@aggTrade/alabusdt@aggTrade
  └─ socket 3  wss://fstream.binance.com/public/stream?streams=liteusdt@depth@100ms/crdousdt@depth@100ms/alabusdt@depth@100ms
 
-usdm-stock-semi  (×2)
+usdm-semi  (×2)
  ├─ socket 1  wss://fstream.binance.com/public/stream?streams=nvdausdt@bookTicker/avgousdt@bookTicker/mrvlusdt@bookTicker
  ├─ socket 2  wss://fstream.binance.com/market/stream?streams=nvdausdt@aggTrade/avgousdt@aggTrade/mrvlusdt@aggTrade
  └─ socket 3  wss://fstream.binance.com/public/stream?streams=nvdausdt@depth@100ms/avgousdt@depth@100ms/mrvlusdt@depth@100ms
@@ -253,13 +255,13 @@ usdm-stock-semi  (×2)
 #### fixed-rate
 
 ```text
-markprice-usdm-crypto  (×1)
+markprice-usdm-sov  (×1)
  └─ socket 1  wss://fstream.binance.com/market/ws/btcusdt@markPrice@1s
 
-markprice-usdm-stock-optical  (×1)
+markprice-usdm-optical  (×1)
  └─ socket 1  wss://fstream.binance.com/market/stream?streams=liteusdt@markPrice@1s/crdousdt@markPrice@1s/alabusdt@markPrice@1s
 
-markprice-usdm-stock-semi  (×1)
+markprice-usdm-semi  (×1)
  └─ socket 1  wss://fstream.binance.com/market/stream?streams=nvdausdt@markPrice@1s/avgousdt@markPrice@1s/mrvlusdt@markPrice@1s
 ```
 
@@ -269,17 +271,17 @@ markprice-usdm-stock-semi  (×1)
 
 ```text
 $ kubectl get pods -n ingestion
-spot-btcusdt-6f8d9c7b5-x2k4p
-spot-btcusdt-6f8d9c7b5-m8q1z
-usdm-btcusdt-5b7c8d9f6-p3n7w
-usdm-btcusdt-5b7c8d9f6-k9r2t
-usdm-stock-optical-7d4f6b8c9-a1b2c
-usdm-stock-optical-7d4f6b8c9-d3e4f
-usdm-stock-semi-8c5d7e9f1-g5h6i
-usdm-stock-semi-8c5d7e9f1-j7k8l
-markprice-usdm-crypto-4a6b8c2d3-m9n0p
-markprice-usdm-stock-optical-9e1f3a5b7-q1r2s
-markprice-usdm-stock-semi-2b4d6f8a1-t3u4v
+spot-sov-6f8d9c7b5-x2k4p
+spot-sov-6f8d9c7b5-m8q1z
+usdm-sov-5b7c8d9f6-p3n7w
+usdm-sov-5b7c8d9f6-k9r2t
+usdm-optical-7d4f6b8c9-a1b2c
+usdm-optical-7d4f6b8c9-d3e4f
+usdm-semi-8c5d7e9f1-g5h6i
+usdm-semi-8c5d7e9f1-j7k8l
+markprice-usdm-sov-4a6b8c2d3-m9n0p
+markprice-usdm-optical-9e1f3a5b7-q1r2s
+markprice-usdm-semi-2b4d6f8a1-t3u4v
 ```
 
 pod 이름 끝의 해시는 Kubernetes가 붙이는 랜덤 값이다. 그룹은 이름이 아니라 label(`rate-group: variable | fixed`)로 구분한다.

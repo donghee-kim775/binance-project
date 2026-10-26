@@ -1,79 +1,78 @@
 # Datasource Ingestion — 폴더 구조
 
-Binance WebSocket을 구독해 Kafka로 발행하는 부분만 다룬다. 그룹 타입(변동성 기반 / 고정 rate)과
-무엇을 구독할지(심볼 / 섹터)는 코드가 아니라 config로만 갈라진다 — 실행 코드는 `app/` 하나뿐이다.
+Binance WebSocket을 구독해 raw 이벤트를 Kafka로 발행하는 부분만 다룬다. 그룹 타입(변동성 기반 / 고정 rate)과
+무엇을 구독할지(심볼 / 섹터)는 코드가 아니라 config로만 갈라진다 — 실행 코드는 [`collector/`](collector/) 하나뿐이고,
+pod마다 ConfigMap으로 구독 설정만 다르게 넣는다.
 
-> **지금은 [`collector/`](collector/)에 Insight 1-1(Spot-Futures Basis) POC용 단일 프로세스
-> Spring Boot 앱이 먼저 들어와 있다.** 아래 구조(core/app/config/deploy 분리, Pod화)는 이 POC가
-> 검증된 다음 리팩터링할 목표 구조다. 자리만 미리 잡아뒀고(`.gitkeep`만 있음) 코드는 아직 없다.
+이 앱은 **producer**다 — payload를 해석하지 않고 envelope로 감싸 옮기기만 한다. Active-Active 중복 제거와
+basis 계산 같은 조인은 raw 토픽을 구독하는 별도 Flink 앱의 책임이다.
 
 ```
 datasource-ingestion/
-├── core/                              # 공유 라이브러리 (목표 구조 — 자리만 있음, 코드 없음)
-│   ├── ws/                            # 재연결·backoff·ping-pong, 24h 커넥션 전환
-│   ├── parser/                        # product별 파서 (스키마가 달라 분리)
-│   │   ├── spot/
-│   │   ├── usdm/
-│   │   ├── coinm/
-│   │   └── options/
-│   ├── dedup/                         # Redis SETNX 기반 dedup
-│   ├── kafka/                         # producer + envelope 스키마
-│   └── metrics/
+├── collector/                         # 수집 앱 (Spring Boot) — 지금 실제로 동작하는 코드
+│   ├── config/ethusdt.yml             # 로컬 실행용 예시 설정
+│   └── src/main/java/com/ingestion/
+│       ├── IngestionCollectorApplication.java   # main() — SpringApplication 부트스트랩
+│       ├── config/
+│       │   ├── BinanceProperties.java           # binance.* — Endpoint(접속 도메인, 환경별) · Subscription(구독 설정, pod별)
+│       │   └── AsyncConfig.java                 # 메시지 처리용 스레드풀
+│       ├── runner/
+│       │   └── CollectorRunner.java             # streams를 돌며 URL 조립 → 소켓 연결
+│       ├── collector/
+│       │   └── BinanceStreamClient.java         # WebSocket 클라이언트 (연결·재연결·수신)
+│       ├── service/
+│       │   └── MarketDataIngestService.java     # combined 메시지 풀기 → envelope 생성 → 발행 위임
+│       ├── model/
+│       │   └── EventEnvelope.java               # 공통 envelope (payload는 원본 그대로)
+│       └── kafka/
+│           └── RawEventPublisher.java           # raw 이벤트 발행 지점 (지금은 로그만)
 │
-├── app/
-│   └── ingestion-runner/              # 단일 실행체. config로 동작이 결정됨 (목표 구조, 아직 없음)
+├── deploy/                            # 이미지 · K8s 매니페스트 (kustomize)
+│   ├── Dockerfile                     # variable / fixed 공용 이미지 1개
+│   ├── kustomization.yaml             # kubectl apply -k deploy
+│   ├── common.yaml                    # namespace binance-ingestion + 공통 환경 변수
+│   ├── mapping.md                     # ConfigMap 설정 → 코드 매핑
+│   ├── variable-rate/                 # Active-Active (replicas 2) — ConfigMap + Deployment + PDB
+│   │   ├── spot-sov.yaml
+│   │   ├── usdm-sov.yaml
+│   │   ├── usdm-optical.yaml
+│   │   └── usdm-semi.yaml
+│   └── fixed-rate/                    # Active-Standby (replicas 1, Recreate) — ConfigMap + Deployment
+│       ├── markprice-usdm-sov.yaml
+│       ├── markprice-usdm-optical.yaml
+│       └── markprice-usdm-semi.yaml
 │
-├── config/                            # Pod 인스턴스별 구독 설정 (목표 구조, 아직 없음)
-│   ├── variable-rate/                 # 심볼별 1 config = 1 Pod
-│   │   ├── bookticker-spot-btcusdt.yaml
-│   │   └── bookticker-spot-ethusdt.yaml
-│   └── fixed-rate/                    # 섹터별 1 config = 1 Pod
-│       ├── markprice-crypto-sector.yaml
-│       └── markprice-tradfi-sector.yaml
-│
-├── deploy/                            # config 1개 = Deployment 1개, replicas=2 (목표 구조, 아직 없음)
-│   ├── variable-rate/
-│   └── fixed-rate/
-│
-└── collector/                         # ← 지금 실제로 동작하는 POC (위 구조로 쪼개지기 전 단일 프로세스)
-    └── src/main/java/com/ingestion/
-        ├── IngestionCollectorApplication.java   # main() — SpringApplication 부트스트랩
-        ├── config/
-        │   └── CollectorProperties.java         # app.symbol 바인딩 (@ConfigurationProperties)
-        ├── runner/
-        │   └── CollectorRunner.java          # URI 조립 → WebSocket 연결 → 메시지 콜백 등록
-        ├── collector/
-        │   └── BinanceStreamClient.java         # WebSocket 클라이언트 (연결·재연결·수신)
-        ├── model/
-        │   ├── SpotBookTicker.java              # spot bookTicker 페이로드 (record)
-        │   └── MarkPriceUpdate.java             # usdm markPrice 페이로드 (record)
-        ├── service/
-        │   └── MarketDataIngestService.java     # 수신 로깅 + 발행 위임 (계산 없음)
-        └── kafka/
-            └── RawEventPublisher.java           # raw 이벤트 발행 지점 (지금은 로그만)
+└── core/  app/  config/               # 예전 목표 구조의 자리 (.gitkeep만 있음, 현재 미사용)
 ```
 
-`collector/` 안은 `config`(설정) → `runner`(오케스트레이션) → `collector`(전송) → `model`(파싱)
-→ `service`(로깅/위임) → `kafka`(발행) 순으로 데이터가 흐른다. **이 앱은 producer다** — spot과
-futures 값을 조합하는 basis 계산은 여기 없고, 두 raw 토픽(`binance.raw.bookticker`,
-`binance.raw.markprice`)을 구독하는 다운스트림 컨슈머(Kafka Streams `basis-join`)의 책임이다.
+pod 1개 = deploy yaml 1개 = ConfigMap 1개다. ConfigMap의 `application.yaml`이 이미지 안의 기본 설정을 덮어써서
+그 pod가 무엇을 구독할지 정한다.
 
-| config 필드 | variable-rate 예시 | fixed-rate 예시 |
+| 설정 필드 | variable-rate 예시 (`usdm-semi`) | fixed-rate 예시 (`markprice-usdm-optical`) |
 | --- | --- | --- |
-| `domain` | `stream.binance.com` | `fstream.binance.com` |
-| `stream` | `btcusdt@bookTicker` | `!markPrice@arr` |
-| `scope` | 심볼 1개 | 섹터(심볼 목록) |
-| `filter` | 없음 | 섹터에 속한 심볼만 통과 |
+| `product` | `usdm` → `wss://fstream.binance.com` | `usdm` → `wss://fstream.binance.com` |
+| `sector` | `semi` | `optical` |
+| `symbols` | `[NVDAUSDT, AVGOUSDT, MRVLUSDT]` → combined | `[LITEUSDT, CRDOUSDT, ALABUSDT]` → combined |
+| `streams` | bookTicker · aggTrade · depth@100ms (소켓 3개) | markPrice@1s (소켓 1개) |
+| 발행 토픽 | `binance.raw.usdm.stock.{bookticker,aggtrade,depth}` | `binance.raw.usdm.stock.markprice` |
+
+필드가 코드 어디로 들어가는지는 [deploy/mapping.md](deploy/mapping.md)를 참고한다.
 
 ## 지금 바로 실행해보려면
 
 ```bash
 cd collector
-./gradlew bootRun                                   # 기본값 BTCUSDT
-./gradlew bootRun --args='--app.symbol=ethusdt'     # 심볼 바꿔서 실행
+./gradlew bootRun                                                              # 기본값: spot-sov와 같은 구독
+./gradlew bootRun --args='--spring.config.additional-location=config/ethusdt.yml'   # 다른 구독 설정으로 실행
 ```
 
-단, `app.symbol` 하나로 spot bookTicker와 usdm markPrice를 **둘 다** 결정한다 — variable-rate
-(심볼별 Pod) 방향만 우연히 맞고, fixed-rate(markPrice류를 섹터로 묶는 것)는 아직 반영 안 됐다.
-markPrice를 섹터 단위로 묶는 건 core/config 분리 리팩터링 때 반영할 부분이다. 자세한 준비물,
-실행 결과 로그 읽는 법, 알려진 이슈는 [`collector/README.md`](collector/README.md)를 참고한다.
+자세한 준비물, 실행 결과 로그 읽는 법, 확인된 스트림 조합은 [`collector/README.md`](collector/README.md)를 참고한다.
+
+## K8s(kind)에 배포하려면
+
+```bash
+docker build -f deploy/Dockerfile -t ingestion-collector:0.0.1 collector
+kind load docker-image ingestion-collector:0.0.1
+kubectl apply -k deploy
+kubectl get pods -n binance-ingestion -L rate-group
+```

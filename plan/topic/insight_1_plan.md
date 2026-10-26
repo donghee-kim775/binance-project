@@ -17,8 +17,8 @@ flowchart LR
     end
 
     subgraph ING["Ingestion pod"]
-        P1["spot-btcusdt ×2<br/>(Active-Active)"]
-        P2["markprice-usdm-crypto ×1<br/>(Active-Standby)"]
+        P1["spot-sov ×2<br/>(Active-Active)"]
+        P2["markprice-usdm-sov ×1<br/>(Active-Standby)"]
     end
 
     subgraph RAW["raw layer · 수집 원본 (중복 포함)"]
@@ -49,29 +49,29 @@ flowchart LR
 ```
 
 ```text
-WSS(Spot)  ─> spot-btcusdt ×2 ─> binance.raw.spot.crypto.bookticker
+WSS(Spot)  ─> spot-sov ×2 ─> binance.raw.spot.crypto.bookticker
                                         │
                                  Flink job 1: dedup (키: u)
                                         ▼
                                  binance.clean.spot.crypto.bookticker ─┐
                                                                         │ key = BTCUSDT
-WSS(USD-M) ─> markprice-usdm-crypto ×1 ─> binance.raw.usdm.crypto.markprice ─┤
+WSS(USD-M) ─> markprice-usdm-sov ×1 ─> binance.raw.usdm.crypto.markprice ─┤
                                                                         ▼
                                                     Flink job 2: basis join
                                                                         ▼
                                                     binance.analytics.crypto.basis
 ```
 
-- **Spot은 clean을 거친다.** `spot-btcusdt`는 Active-Active라 raw에 같은 이벤트가 두 번 들어온다.
+- **Spot은 clean을 거친다.** `spot-sov`는 Active-Active라 raw에 같은 이벤트가 두 번 들어온다.
 - **markPrice는 raw를 그대로 쓴다.** fixed-rate pod는 Active-Standby라 중복이 없어서 dedup 단계가 없다.
 
 ## [사용 토픽]
 
 | 토픽 | 쓰는 쪽 | 읽는 쪽 | 키 | 파티션 | 보존 | yaml 위치 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `binance.raw.spot.crypto.bookticker` | spot-btcusdt pod | Flink job 1 | `BTCUSDT` | 3 | 24h | `binance/raw/crypto/` |
+| `binance.raw.spot.crypto.bookticker` | spot-sov pod | Flink job 1 | `BTCUSDT` | 3 | 24h | `binance/raw/crypto/` |
 | `binance.clean.spot.crypto.bookticker` | Flink job 1 | Flink job 2 | `BTCUSDT` | 3 | 24h | `binance/clean/crypto/` |
-| `binance.raw.usdm.crypto.markprice` | markprice-usdm-crypto pod | Flink job 2 | `BTCUSDT` | 3 | 3d | `binance/raw/crypto/` |
+| `binance.raw.usdm.crypto.markprice` | markprice-usdm-sov pod | Flink job 2 | `BTCUSDT` | 3 | 3d | `binance/raw/crypto/` |
 | `binance.analytics.crypto.basis` | Flink job 2 | 대시보드, 알림 | `BTCUSDT` | 3 | 7d | `binance/analytics/crypto/` |
 
 yaml 위치는 [Infra/Kafka/Kafka-Topic/](../../Infra/Kafka/Kafka-Topic/) 기준이다. 4개 토픽 모두 공통으로 아래 설정을 쓴다.
@@ -93,7 +93,7 @@ job 2에서 두 토픽을 같은 키로 조인하려면 아래 조건을 모두 
 | 두 토픽의 파티션 수가 같음 | 둘 다 3. **clean 토픽도 반드시 3으로 만든다** |
 | 같은 partitioner | 기본 partitioner 사용 |
 
-> 기존 [1_1_plan.md §4.5](../../Insights/1.spot_futures_basis/1_1_plan.md)는 키를 `spot:BTCUSDT`, `usdm:BTCUSDT`로 다르게 잡아 그대로는 조인이 안 된다 (re-key 필요). 이 문서의 설계로 대체한다.
+> 초기 검토안은 키를 `spot:BTCUSDT`, `usdm:BTCUSDT`로 다르게 잡아 그대로는 조인이 안 됐다 (re-key 필요). 키를 심볼로 통일해 해결했다.
 
 ## [Flink job 1: dedup]
 
@@ -186,6 +186,6 @@ end-to-end           = ⑥ − ②
 ## [남은 과제]
 
 - **clean 토픽 경유 여부:** dedup과 join을 한 Flink job으로 합치면 Kafka를 한 번 덜 거쳐 지연이 줄어든다. 대신 clean 토픽을 다른 분석에서 재사용할 수 없다. 현재는 단계별 지연 측정과 재사용을 위해 job 2개로 둔다.
-- **collector 수정:** 현재 POC의 [RawEventPublisher.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/kafka/RawEventPublisher.java)는 `binance.raw.bookticker`(키 `spot:BTCUSDT`), `binance.raw.markprice`(키 `usdm:BTCUSDT`)로 로그만 남긴다. 토픽 이름과 키를 이 문서 기준으로 바꾸고 envelope에 `receive_time`을 넣어야 한다.
-- **1_1_plan.md 정리:** §2(KStream-KStream 윈도우 조인)와 §4.5(토픽, 키)를 이 문서 기준으로 고친다.
+- **collector Kafka 발행:** [RawEventPublisher.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/kafka/RawEventPublisher.java)는 토픽(설정 `binance.subscription.streams[].topic`), 키(심볼), envelope `receive_time`까지 이 문서 기준으로 맞춰져 있지만, `spring-kafka`가 꺼져 있어 아직 로그만 남긴다.
+- **Spot 신선도 체크 기준 시각:** Spot bookTicker에는 `E`가 없어 envelope `event_time`이 `null`이다. job 2의 `m.eventTime() - s.eventTime() < 2000` 비교에서 Spot 쪽은 `receive_time`을 써야 한다.
 - **analytics 토픽 이름:** basis는 Spot과 USD-M을 함께 쓰는 결과라 이름에 product를 넣지 않았다 (`binance.analytics.crypto.basis`). 이 예외를 [plan.md](plan.md)의 이름 규칙에도 적어 둔다.

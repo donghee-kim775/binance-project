@@ -42,7 +42,7 @@ flowchart LR
 | Kafka (Strimzi, KRaft) | 이벤트 버퍼·전달·재처리. `raw` → `clean` → `analytics` 3단계 토픽 |
 | Flink | dedup, 스트림 조인(basis 등), 실시간 지표 계산 |
 | ClickHouse | 대량 시계열 분석·조회 |
-| Redis | 서빙 계층의 최신값 캐시와 WebSocket fan-out(Pub/Sub). Ingestion dedup 상태 저장 후보 |
+| Redis | 서빙 계층의 최신값 캐시와 WebSocket fan-out(Pub/Sub) |
 | Serving Gateway | analytics 결과를 WebSocket으로 클라이언트에 push |
 | Dashboard | 분석 결과 실시간 시각화 |
 
@@ -56,7 +56,7 @@ flowchart LR
 | --- | --- | --- |
 | Ingestion 구성 단위 | **product + 심볼 단위 Pod.** 트래픽이 일정한 `markPrice@1s`는 섹터 단위로 묶어 별도 그룹(fixed-rate)으로 분리 | [ingestion/plan.md](plan/ingestion/plan.md) |
 | HA | variable-rate 그룹은 **Active-Active (replicas 2)**, fixed-rate 그룹은 **Active-Standby (replicas 1)** | [ingestion/plan.md](plan/ingestion/plan.md) |
-| 중복 제거 | Active-Active라 같은 이벤트가 두 번 들어옴. 거래소 고유값(`t`, `a`, `u`)을 키로 제거. 위치(Ingestion 단 Redis vs Flink)는 [남은 과제](#남은-과제) 참고 | [ingestion/plan.md](plan/ingestion/plan.md), [topic/plan.md](plan/topic/plan.md) |
+| 중복 제거 | Active-Active라 같은 이벤트가 두 번 들어옴. 수집 앱은 raw만 보내고, **Flink에서** 거래소 고유값(`t`, `a`, `u`)을 키로 제거해 `clean` 토픽에 쓴다 | [ingestion/plan.md](plan/ingestion/plan.md), [topic/plan.md](plan/topic/plan.md) |
 | 토픽 분리 단위 | **product × 자산종류 × 스트림.** 한 토픽에는 한 스키마만. crypto와 stock은 소비자·트래픽 성격이 달라 분리, 섹터는 envelope `sector` 필드로 구분 | [topic/plan.md](plan/topic/plan.md) |
 | 토픽 이름 | `binance.<raw\|clean\|analytics>.<spot\|usdm>.<crypto\|stock>.<stream>` | [topic/plan.md](plan/topic/plan.md) |
 | 키와 파티션 | 키는 **심볼**. 조인할 토픽끼리 파티션 수를 맞춰 co-partitioning 보장 (crypto 3, stock 6) | [topic/plan.md](plan/topic/plan.md) |
@@ -88,8 +88,9 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 │   ├── topic/             Kafka 토픽 설계, Insight 1 토픽 흐름
 │   └── consumer/          (예정)
 ├── datasource-ingestion/  Ingestion 앱
-│   ├── collector/         현재 동작하는 Spring Boot POC
-│   └── core/ app/ config/ deploy/   POC 이후 리팩터링할 목표 구조 (자리만 있음)
+│   ├── collector/         수집 앱 (Spring Boot). raw만 envelope로 감싸 발행
+│   ├── deploy/            Dockerfile, variable-rate / fixed-rate K8s 매니페스트, 설정→코드 매핑
+│   └── core/ app/ config/ 예전 목표 구조의 자리 (현재 미사용)
 ├── Infra/                 kind 클러스터, Strimzi Kafka, Flink Operator 설치
 ├── Insights/              인사이트 카탈로그와 인사이트별 구현 계획·분석 노트북
 └── servingapp/            서빙 계층 설계와 POC
@@ -118,15 +119,16 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 
 #### A-1. Ingestion
 
-- [x] Spring Boot POC: Spot `bookTicker` + USD-M `markPrice` 수신·파싱 ([collector/](datasource-ingestion/collector/), Kafka 발행은 아직 로그만)
+- [x] 설정 기반 수집 앱: `binance.subscription.*` 설정으로 product · 심볼 · 스트림 구독 ([collector/](datasource-ingestion/collector/), [mapping.md](datasource-ingestion/deploy/mapping.md))
+- [x] combined stream(`/stream?streams=`) 지원과 섹터 단위 구독
+- [x] envelope(`source`, `product`, `asset_class`, `sector`, `stream`, `symbol`, `event_time`,
+      `receive_time`, `collector_id`, `payload`) 생성. payload는 원본 그대로
+- [x] 공용 이미지와 variable-rate / fixed-rate 매니페스트 ([deploy/](datasource-ingestion/deploy/))
+- [ ] Kafka Producer 연동 (`spring-kafka`, `KafkaTemplate`). 지금은 토픽 · 키를 로그로만 남김
+- [ ] 같은 심볼의 메시지 순서 보장 (`@Async` 스레드풀이 순서를 섞을 수 있음)
 - [ ] WebSocket 클라이언트 고도화 (exponential backoff, 24시간 커넥션 만료 전 make-before-break)
-- [ ] Product별 파서 분리 (Spot vs USD-M 필드 스키마 차이 반영)
-- [ ] combined stream(`/stream?streams=`) 지원과 섹터 단위 구독
-- [ ] variable-rate / fixed-rate config 분리와 Pod화 (`core/`, `app/`, `config/`, `deploy/`)
-- [ ] Kafka Producer 연동: envelope(`source`, `product`, `asset_class`, `sector`, `stream`,
-      `symbol`, `event_time`, `receive_time`, `collector_id`, `payload`) 적용
-- [ ] Active-Active 배포 (variable-rate replicas 2)와 dedup 적용
-- [ ] Ingestion metric 노출 (`binance_ws_connected`, `binance_event_lag_ms`, `dedup_dropped_total` 등)
+- [ ] kind 클러스터 배포 검증 (Active-Active 노드 분산, 페일오버)
+- [ ] Ingestion metric 노출 (`binance_ws_connected`, `binance_event_lag_ms` 등)
 
 #### A-2. Kafka · 스트림 처리 인프라
 
@@ -256,13 +258,15 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 
 ## 남은 과제
 
-- **중복 제거 위치 통일**: [ingestion/plan.md](plan/ingestion/plan.md)는 Ingestion 단 Redis
-  `SETNX`를 선택했고, [topic/plan.md](plan/topic/plan.md)와
-  [insight_1_plan.md](plan/topic/insight_1_plan.md)는 Flink dedup으로 `clean` 토픽을 만드는
-  구조다. 하나로 정한 뒤 `clean` 단계의 필요 여부를 다시 정리한다.
-- **분석 엔진 표기 통일**: [servingapp/plan.md](servingapp/plan.md)와
-  [1_1_plan.md](Insights/1.spot_futures_basis/1_1_plan.md)는 Kafka Streams와 이전 토픽
+- **중복 제거 결정 문서 반영**: 수집 앱은 raw만 보내고 중복 제거는 Flink에서 하기로 정했고, 코드와
+  [topic/plan.md](plan/topic/plan.md)의 `clean` 토픽 구조도 이 방향이다. 하지만
+  [ingestion/plan.md](plan/ingestion/plan.md)는 아직 "선택: a (Ingestion 단 Redis `SETNX`)"로 남아 있어
+  Flink 쪽으로 고쳐야 한다.
+- **분석 엔진 표기 통일**: [servingapp/plan.md](servingapp/plan.md)는 Kafka Streams와 이전 토픽
   이름(`market.analytics.basis`)을 기준으로 쓰여 있다. 현재 설계(Flink,
-  `binance.analytics.crypto.basis`)에 맞춰 고친다.
-- **collector 토픽·키 반영**: POC의 토픽 이름(`binance.raw.bookticker`)과 키(`spot:BTCUSDT`)를
-  [topic/plan.md](plan/topic/plan.md) 규칙으로 바꾼다.
+  `binance.analytics.crypto.basis`)에 맞춰 고친다. ([1_1_plan.md](Insights/1.spot_futures_basis/1_1_plan.md)는 반영 완료)
+- **Flink 앱 시작**: dedup(`raw` → `clean`)과 basis join을 별도 앱으로 만든다. 설계는
+  [insight_1_plan.md](plan/topic/insight_1_plan.md)에 있다.
+- **datasource-ingestion 빈 폴더 정리**: `core/`, `app/`, `config/`는 예전 목표 구조의 자리로
+  `.gitkeep`만 있다. 특히 `core/dedup/`, `core/parser/`는 현재 방향(dedup 없음, 스트림별 파서 없음)과
+  맞지 않는다.

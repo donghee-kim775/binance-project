@@ -4,19 +4,37 @@ spring:
   main:
     web-application-type: none # servlet / reactive / none
 
-# setup: Pod(인스턴스)마다 달라지는 값. meta: 환경(테스트넷/프로덕션)에 따라서만 달라지는
-# product별 접속 주소 — 도메인 변경 시 코드 수정 없이 이 값만 바꾼다.
-# (binanceAPIREADME.md, binanceWebSocketREADME.md 참고)
 binance:
-  setup:
-    symbol: BTCUSDT
-  meta:
+  # endpoint: 환경(테스트넷/프로덕션)에 따라서만 달라지는 product별 접속 주소 → BinanceProperties.Endpoint
+  # — 모든 Pod가 같은 값이라 여기에만 두고 ConfigMap에는 넣지 않는다. 도메인 변경 시 이 값만 바꾼다.
+  # (binanceAPIREADME.md, binanceWebSocketREADME.md 참고)
+  endpoint:
     spot:
-      rest-base-url: https://api.binance.com
-      websocket-stream-url: wss://stream.binance.com:9443
+      restapi-url: https://api.binance.com
+      wss-url: wss://stream.binance.com:9443
     usdm-futures:
-      rest-base-url: https://fapi.binance.com
-      websocket-stream-url: wss://fstream.binance.com
+      restapi-url: https://fapi.binance.com
+      wss-url: wss://fstream.binance.com
+
+  # subscription: Pod(인스턴스)마다 달라지는 구독 설정 → BinanceProperties.Subscription
+  # — 로컬 실행용 기본값(spot-sov pod와 동일). K8s에서는 ConfigMap(/config/application.yaml)이 덮어쓴다.
+  # (datasource-ingestion/deploy/mapping.md 참고)
+  subscription:
+    group: variable-rate
+    product: spot
+    asset-class: crypto
+    sector: sov
+    symbols: [BTCUSDT]
+    streams:
+      - stream: bookTicker
+        path: ""
+        topic: binance.raw.spot.crypto.bookticker
+      - stream: trade
+        path: ""
+        topic: binance.raw.spot.crypto.trade
+      - stream: depth@100ms
+        path: ""
+        topic: binance.raw.spot.crypto.depth
 
 logging:
   pattern:

@@ -45,7 +45,7 @@ USD-M의 BTC 선물과 주식 선물(TradFi Perpetual)은 스키마가 같아서
 
     - 트래픽 성격이 다르다. BTC는 24시간 내내 많고, 주식은 기초 시장의 장외 시간에 거의 조용하다.
     - 주식 분석 소비자가 밀려도(lag) 코인 쪽에 영향이 없다.
-    - pod도 이미 `usdm-btcusdt`와 `usdm-stock-*`로 나뉘어 있어 수집 구조와 맞는다.
+    - pod도 이미 `usdm-sov`(crypto)와 `usdm-optical`·`usdm-semi`(stock)로 나뉘어 있어 수집 구조와 맞는다.
     - 교차 분석(BTC와 NVDA 상관관계 등)은 Kafka Streams `merge()`, Flink union으로 토픽 두 개를 합쳐 읽는다.
 
 - **섹터는 토픽으로 나누지 않는다.** optical, semi는 같은 stock 토픽에 넣고 envelope의 `sector` 필드로 구분한다. 섹터마다 토픽을 만들면 섹터가 늘 때마다 토픽도 늘어 옵션 d(심볼별 토픽)와 같은 문제가 생긴다.
@@ -64,23 +64,47 @@ product  : spot / usdm
 - Spot에는 주식이 없지만, 규칙을 통일하기 위해 `crypto`를 넣는다.
 - 이름은 소문자, 숫자, `.`만 쓴다. 대문자나 `_`를 쓰지 않으면 Strimzi `KafkaTopic`의 `metadata.name`을 토픽 이름과 똑같이 쓸 수 있다.
 
+## [고려 사항 4. crypto 심볼에도 sector를 붙일 것인가]
+
+> envelope의 `sector`는 stock 섹터(optical, semi)를 구분하려고 만들었다. crypto 이벤트에는 무엇을 넣어야 하나?
+
+- **선택 옵션**
+
+    a. **`null`** ⇒ 아직 crypto 섹터 수집이 없으니 비워 둠 / 소비자마다 null 처리가 필요, crypto 섹터를 추가할 때 기준을 그때 새로 정해야 함
+
+    b. **`coin` 같은 고정값** ⇒ 모든 이벤트에 값이 있음 / `asset_class=crypto`와 같은 정보를 반복, 나중에 진짜 섹터(l1, meme 등)를 넣으면 축이 다른 값이 섞임
+
+    c. **코인의 역할로 분류** (`sov`, `l1`, `meme` 등) ⇒ stock과 같은 "섹터 = 역할" 축으로 통일 / 분류 표준이 없어 기준을 직접 관리해야 함
+
+- **선택 : c.**
+
+    - `sector`의 의미가 자산 종류와 상관없이 **"이 종목이 무슨 역할을 하는가"** 하나로 통일된다. Flink에서 `GROUP BY sector`를 해도 같은 축의 값만 나온다.
+    - 분류 기준을 지금 [cryptoSectorREADME.md](../../APIdocs/cryptoSectorREADME.md)로 정해 두면, crypto 섹터 pod(`l1` 바스켓 등)를 추가할 때 envelope 규칙을 다시 바꿀 필요가 없다.
+    - 값은 ConfigMap의 `binance.subscription.sector`로만 정해지므로 수집 앱 코드는 바뀌지 않는다. 현재 영향 범위는 BTC pod 3개의 설정 한 줄씩이다. pod 이름도 crypto와 stock 모두 `<product>-<섹터>` 규칙으로 맞췄다 (`spot-btcusdt` → `spot-sov`, `usdm-stock-optical` → `usdm-optical` 등, [ingestion/plan.md](../ingestion/plan.md) pod 그룹 규칙).
+    - BTC는 `sov`다.
+
+- **감수하는 trade-off**
+    - **분류 기준을 직접 관리해야 한다.** 코인 분류에는 표준이 없고 한 코인이 여러 분류에 걸친다. "가격을 주로 움직이는 이유 하나를 고른다"는 규칙을 cryptoSectorREADME.md에 두고, 추가할 때 CoinGecko·CoinMarketCap 카테고리로 확인한다.
+    - **기존 raw 데이터와 값이 다르다.** 이 결정 전에 쌓인 crypto 이벤트는 `sector: null`이다. 재처리할 때는 `COALESCE(sector, 'sov')`처럼 symbol 기준으로 채운다 (지금은 BTCUSDT 하나뿐).
+    - **단일 심볼 pod에서는 정보량이 적다.** BTC 하나만 받는 pod는 sector가 심볼과 1:1이다. 값어치는 crypto 섹터 pod가 생길 때 나온다.
+
 ## [토픽 목록]
 
 ### raw 토픽 (11개)
 
 | 토픽 | 쓰는 pod | 키 | 파티션 | 보존 |
 | --- | --- | --- | --- | --- |
-| `binance.raw.spot.crypto.bookticker` | spot-btcusdt | 심볼 | 3 | 24h |
-| `binance.raw.spot.crypto.trade` | spot-btcusdt | 심볼 | 3 | 7d |
-| `binance.raw.spot.crypto.depth` | spot-btcusdt | 심볼 | 3 | 6h |
-| `binance.raw.usdm.crypto.bookticker` | usdm-btcusdt | 심볼 | 3 | 24h |
-| `binance.raw.usdm.crypto.aggtrade` | usdm-btcusdt | 심볼 | 3 | 7d |
-| `binance.raw.usdm.crypto.depth` | usdm-btcusdt | 심볼 | 3 | 6h |
-| `binance.raw.usdm.crypto.markprice` | markprice-usdm-crypto | 심볼 | 3 | 3d |
-| `binance.raw.usdm.stock.bookticker` | usdm-stock-optical, usdm-stock-semi | 심볼 | 6 | 24h |
-| `binance.raw.usdm.stock.aggtrade` | usdm-stock-optical, usdm-stock-semi | 심볼 | 6 | 7d |
-| `binance.raw.usdm.stock.depth` | usdm-stock-optical, usdm-stock-semi | 심볼 | 6 | 6h |
-| `binance.raw.usdm.stock.markprice` | markprice-usdm-stock-optical, markprice-usdm-stock-semi | 심볼 | 6 | 3d |
+| `binance.raw.spot.crypto.bookticker` | spot-sov | 심볼 | 3 | 24h |
+| `binance.raw.spot.crypto.trade` | spot-sov | 심볼 | 3 | 7d |
+| `binance.raw.spot.crypto.depth` | spot-sov | 심볼 | 3 | 6h |
+| `binance.raw.usdm.crypto.bookticker` | usdm-sov | 심볼 | 3 | 24h |
+| `binance.raw.usdm.crypto.aggtrade` | usdm-sov | 심볼 | 3 | 7d |
+| `binance.raw.usdm.crypto.depth` | usdm-sov | 심볼 | 3 | 6h |
+| `binance.raw.usdm.crypto.markprice` | markprice-usdm-sov | 심볼 | 3 | 3d |
+| `binance.raw.usdm.stock.bookticker` | usdm-optical, usdm-semi | 심볼 | 6 | 24h |
+| `binance.raw.usdm.stock.aggtrade` | usdm-optical, usdm-semi | 심볼 | 6 | 7d |
+| `binance.raw.usdm.stock.depth` | usdm-optical, usdm-semi | 심볼 | 6 | 6h |
+| `binance.raw.usdm.stock.markprice` | markprice-usdm-optical, markprice-usdm-semi | 심볼 | 6 | 3d |
 
 - Spot은 `trade`, USD-M은 `aggTrade`를 수집한다.
 - 보존 기간 기준: depth와 bookTicker는 양이 많고 시간이 지나면 가치가 떨어져 짧게, trade는 원본 기록 가치가 커서 길게 잡는다.
@@ -88,13 +112,13 @@ product  : spot / usdm
 ### pod와 토픽의 관계 (usdm 예시)
 
 ```text
-usdm-stock-optical  socket(bookTicker) ──┐
-usdm-stock-semi     socket(bookTicker) ──┴──> binance.raw.usdm.stock.bookticker
+usdm-optical  socket(bookTicker) ──┐
+usdm-semi     socket(bookTicker) ──┴──> binance.raw.usdm.stock.bookticker
 
-usdm-stock-optical  socket(aggTrade)   ──┐
-usdm-stock-semi     socket(aggTrade)   ──┴──> binance.raw.usdm.stock.aggtrade
+usdm-optical  socket(aggTrade)   ──┐
+usdm-semi     socket(aggTrade)   ──┴──> binance.raw.usdm.stock.aggtrade
 
-usdm-btcusdt        socket(aggTrade)   ─────> binance.raw.usdm.crypto.aggtrade
+usdm-sov      socket(aggTrade)   ─────> binance.raw.usdm.crypto.aggtrade
 ```
 
 pod 하나의 소켓 3개는 각각 다른 토픽에 쓰고, 같은 종류의 소켓은 pod가 달라도 같은 토픽에 쓴다.
@@ -234,7 +258,7 @@ erDiagram
 ```
 
 **읽는 법**
-- `||--|{` : 왼쪽 1개가 오른쪽 여러 개와 연결된다. 예: `spot-btcusdt` pod 하나가 raw 토픽 3개(bookticker, trade, depth)에 쓴다.
+- `||--|{` : 왼쪽 1개가 오른쪽 여러 개와 연결된다. 예: `spot-sov` pod 하나가 raw 토픽 3개(bookticker, trade, depth)에 쓴다.
 - `}|--|{` : 여러 pod가 같은 토픽 묶음에 함께 쓴다. 예: optical, semi pod가 모두 `binance.raw.usdm.stock.*`에 쓴다.
 - markprice 토픽은 Active-Standby라 중복이 없어서 `FLINK_dedup`을 거치지 않고 바로 분석에 쓰인다.
 - `FLINK_analytics`는 현재 Insight 1(basis)만 있다. 상세 흐름은 [insight_1_plan.md](insight_1_plan.md) 참고.
@@ -262,12 +286,12 @@ erDiagram
   "symbol": "NVDAUSDT",
   "event_time": 1729400000123,
   "receive_time": 1729400000130,
-  "collector_id": "usdm-stock-semi-8c5d7e9f1-g5h6i",
+  "collector_id": "usdm-semi-8c5d7e9f1-g5h6i",
   "payload": { }
 }
 ```
 
-- `sector`: 같은 stock 토픽 안에서 섹터를 구분한다. crypto는 `null`.
+- `sector`: 같은 토픽 안에서 종목의 역할(섹터)을 구분한다. stock은 `optical`, `semi`, crypto는 [cryptoSectorREADME.md](../../APIdocs/cryptoSectorREADME.md) 기준(`sov`, `l1` 등) (고려 사항 4).
 - `collector_id`: pod 이름 (`HOSTNAME` 환경변수). Active-Active에서 어느 pod가 보낸 메시지인지 추적한다.
 - `payload`: Binance 원본 그대로 둔다. 필드를 고치지 않아야 나중에 재처리할 수 있다.
 

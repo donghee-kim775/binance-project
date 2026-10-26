@@ -1,2 +1,13 @@
-app:
-  symbol: ETHUSDT
+# 로컬에서 다른 심볼로 실행해보는 예시 — application.yml의 binance.subscription 블록을 덮어쓴다.
+#   ./gradlew bootRun --args='--spring.config.additional-location=config/ethusdt.yml'
+binance:
+  subscription:
+    group: variable-rate
+    product: spot
+    asset-class: crypto
+    sector: l1
+    symbols: [ETHUSDT]
+    streams:
+      - stream: bookTicker
+        path: ""
+        topic: binance.raw.spot.crypto.bookticker
