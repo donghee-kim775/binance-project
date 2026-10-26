@@ -21,13 +21,13 @@ data:
         symbols: [LITEUSDT, CRDOUSDT, ALABUSDT]
         streams:
           - stream: bookTicker
-            path: "/public"
+            route-prefix: "/public"
             topic: binance.raw.usdm.stock.bookticker
           - stream: aggTrade
-            path: "/market"
+            route-prefix: "/market"
             topic: binance.raw.usdm.stock.aggtrade
           - stream: depth@100ms
-            path: "/public"
+            route-prefix: "/public"
             topic: binance.raw.usdm.stock.depth
 ---
 apiVersion: apps/v1

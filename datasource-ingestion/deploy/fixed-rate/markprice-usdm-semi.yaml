@@ -21,7 +21,7 @@ data:
         symbols: [NVDAUSDT, AVGOUSDT, MRVLUSDT]
         streams:
           - stream: markPrice@1s
-            path: "/market"
+            route-prefix: "/market"
             topic: binance.raw.usdm.stock.markprice
 ---
 apiVersion: apps/v1

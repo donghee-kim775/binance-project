@@ -21,7 +21,7 @@ data:
         symbols: [BTCUSDT]
         streams:
           - stream: markPrice@1s
-            path: "/market"
+            route-prefix: "/market"
             topic: binance.raw.usdm.crypto.markprice
 ---
 apiVersion: apps/v1

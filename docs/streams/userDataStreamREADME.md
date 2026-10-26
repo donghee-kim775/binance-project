@@ -85,8 +85,9 @@ listenKey 생성/갱신/만료 처리가 전부 사라진다.
 curl -X POST 'https://fapi.binance.com/fapi/v1/listenKey' -H 'X-MBX-APIKEY: ...'
 # -> {"listenKey":"pqia91ma19a5s61cv6a81va65sdf19v8a65a1a5s61cv6a81va65sdf19v8a65a1"}
 
-# 2. 연결 (Futures 예시; COIN-M은 dstream, Options는 nbstream/eoptions)
-wss://fstream.binance.com/ws/<listenKey>
+# 2. 연결 (USD-M 예시; COIN-M은 dstream, Options는 nbstream/eoptions)
+#    USD-M은 /private 접두어 + listenKey · events 쿼리 (접두어 없는 옛 URL은 2026-04-23 이후 미동작)
+wss://fstream.binance.com/private/ws?listenKey=<listenKey>&events=ORDER_TRADE_UPDATE/ACCOUNT_UPDATE
 
 # 3. 60분마다 keepalive (안 하면 60분 후 끊김)
 curl -X PUT 'https://fapi.binance.com/fapi/v1/listenKey' -H 'X-MBX-APIKEY: ...'
@@ -204,8 +205,8 @@ POST   https://fapi.binance.com/fapi/v1/listenKey
 PUT    https://fapi.binance.com/fapi/v1/listenKey
 DELETE https://fapi.binance.com/fapi/v1/listenKey
 
-# 연결
-wss://fstream.binance.com/ws/<listenKey>
+# 연결 (/private 접두어, 받을 이벤트는 events로 지정)
+wss://fstream.binance.com/private/ws?listenKey=<listenKey>&events=ORDER_TRADE_UPDATE/ACCOUNT_UPDATE
 ```
 
 | 이벤트 | 내용 |
@@ -377,7 +378,7 @@ import asyncio, json, os, time, httpx, websockets
 
 API_KEY = os.environ["BINANCE_API_KEY"]
 REST    = "https://fapi.binance.com"
-WS      = "wss://fstream.binance.com/ws"
+WS      = "wss://fstream.binance.com/private/ws"   # USD-M은 /private 접두어
 HEADERS = {"X-MBX-APIKEY": API_KEY}
 
 async def keepalive(client, listen_key, stop):
@@ -396,7 +397,7 @@ async def main():
         stop = asyncio.Event()
         task = asyncio.create_task(keepalive(client, listen_key, stop))
         try:
-            async with websockets.connect(f"{WS}/{listen_key}") as ws:
+            async with websockets.connect(f"{WS}?listenKey={listen_key}&events=ORDER_TRADE_UPDATE/ACCOUNT_UPDATE") as ws:
                 async for raw in ws:
                     ev = json.loads(raw)
                     recv_ms = int(time.time() * 1000)

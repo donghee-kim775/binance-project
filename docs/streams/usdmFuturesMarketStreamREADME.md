@@ -39,10 +39,27 @@ Crypto Perpetual과 동일하다. Delivery(만기 선물)의 심볼은 만기가
 
 ## 연결 방식
 
+USD-M은 데이터 종류별로 **라우팅 접두어**(route prefix)가 나뉜다. 접두어는 도메인 바로 뒤, `/ws`나 `/stream` 앞에 붙는다.
+트래픽 증가로 Binance가 고빈도 호가 데이터와 일반 시장 데이터를 다른 경로로 분리했다
+([Important WebSocket Change Notice](https://developers.binance.com/docs/derivatives/usds-margined-futures/websocket-market-streams/Important-WebSocket-Change-Notice)).
+
+| 접두어 | 성격 | 스트림 |
+| --- | --- | --- |
+| `/public` | 고빈도 호가 데이터 | `<symbol>@bookTicker`, `!bookTicker`, `<symbol>@depth`, `<symbol>@depth<levels>` (`@100ms`, `@500ms`) |
+| `/market` | 일반 시장 데이터 | `<symbol>@aggTrade`, `<symbol>@markPrice`, `<symbol>@kline_<interval>`, `<symbol>@forceOrder`, `!forceOrder@arr`, `<symbol>@ticker`, `!ticker@arr`, miniTicker 등 |
+| `/private` | 계정 데이터 (listenKey) | [userDataStreamREADME.md](userDataStreamREADME.md) 참고 |
+
 ```text
-단일:  wss://fstream.binance.com/ws/btcusdt@aggTrade
-결합:  wss://fstream.binance.com/stream?streams=btcusdt@aggTrade/btcusdt@markPrice
+단일:  wss://fstream.binance.com/market/ws/btcusdt@aggTrade
+결합:  wss://fstream.binance.com/market/stream?streams=btcusdt@aggTrade/btcusdt@markPrice
+호가:  wss://fstream.binance.com/public/stream?streams=btcusdt@bookTicker/ethusdt@bookTicker
 ```
+
+- **한 URL에는 같은 접두어의 스트림만 묶는다.** `bookTicker`(`/public`)와 `aggTrade`(`/market`)는 한 연결에 섞을 수 없다.
+- **접두어를 틀리면 연결은 되지만 메시지가 오지 않는다.** 예: `/public/ws/btcusdt@markPrice`
+- **접두어 없는 옛 URL**(`wss://fstream.binance.com/ws/...`, `/stream?...`)은 전환 기간에 `/public` 데이터만 받았고, 공지 기준 2026-04-23 이후로는 동작하지 않는다.
+- 이 표에 없는 스트림(예: `<symbol>@trade`)은 연결 전에 공식 문서에서 접두어를 확인한다.
+- 수집 앱에서는 ConfigMap의 `binance.subscription.streams[].route-prefix`로 지정한다 ([mapping.md](../../datasource-ingestion/deploy/mapping.md)).
 
 Spot과 스트림 이름은 비슷하지만 **페이로드에 필드가 추가된다.**
 

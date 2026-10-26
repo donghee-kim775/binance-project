@@ -58,14 +58,19 @@ public class CollectorRunner implements ApplicationRunner {
     //  - subscription (binance.subscription.*) : application.yml 기본값을 K8s ConfigMap이 덮어씀
     @Override
     public void run(ApplicationArguments args) throws InterruptedException {
-        String baseUrl = baseUrl(subscription.product());
+        // product → 접속 도메인. 설정 키 이름이 달라(usdm ↔ usdm-futures) 여기서 변환한다
+        String baseUrl = switch (subscription.product()) {
+            case "spot" -> endpoint.spot().wssUrl();
+            case "usdm" -> endpoint.usdmFutures().wssUrl();
+            default -> throw new IllegalArgumentException("unknown product: " + subscription.product());
+        };
 
         // streams 항목 하나 = 소켓 하나
         for (StreamSpec spec : subscription.streams()) {
-            // baseUrl + path(/public · /market · "") + /ws/... 또는 /stream?streams=...
-            // USD-M은 path 접두어를 틀리면 연결만 되고 메시지가 전혀 안 온다
+            // baseUrl + routePrefix(/public · /market · "") + /ws/... 또는 /stream?streams=...
+            // USD-M은 routePrefix를 틀리면 연결만 되고 메시지가 전혀 안 온다
             // (developers.binance.com USDⓈ-M Futures WebSocket Market Streams 문서 참고)
-            URI uri = URI.create(baseUrl + spec.path() + streamSuffix(spec.stream()));
+            URI uri = URI.create(baseUrl + spec.routePrefix() + streamSuffix(spec.stream()));
 
             // BinanceStreamClient
             // parameter 1 : streamlabel  
@@ -88,15 +93,6 @@ public class CollectorRunner implements ApplicationRunner {
     }
 
     // ── URL 조립 ─────────────────────────────────────────────
-    // * product → 접속 도메인. 설정 키 이름이 달라(usdm ↔ usdm-futures) 여기서 변환한다
-    private String baseUrl(String product) {
-        return switch (product) {
-            case "spot" -> endpoint.spot().wssUrl();
-            case "usdm" -> endpoint.usdmFutures().wssUrl();
-            default -> throw new IllegalArgumentException("unknown product: " + product);
-        };
-    }
-
     // * symbols → 스트림 경로. Binance 스트림 이름은 소문자 심볼을 쓴다
     //   심볼 1개    : /ws/btcusdt@bookTicker
     //   심볼 여러 개 : /stream?streams=liteusdt@markPrice@1s/crdousdt@markPrice@1s/...

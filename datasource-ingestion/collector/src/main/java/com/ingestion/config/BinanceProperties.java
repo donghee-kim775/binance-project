@@ -17,13 +17,13 @@ import jakarta.validation.constraints.NotNull;
  * - {@link Subscription} (binance.subscription.*) : Pod마다 바뀜 → ConfigMap이 덮어쓴다
  *
  * 두 값이 합쳐져 소켓 URL이 된다 (CollectorRunner.run()):
- *   URL = endpoint.<product>.wss-url + streams[].path + (심볼 1개면 /ws/..., 여러 개면 /stream?streams=...)
+ *   URL = endpoint.<product>.wss-url + streams[].route-prefix + (심볼 1개면 /ws/..., 여러 개면 /stream?streams=...)
  *
- *   spot-sov pod  (product=spot, symbols=[BTCUSDT], stream=bookTicker, path="")
+ *   spot-sov pod  (product=spot, symbols=[BTCUSDT], stream=bookTicker, route-prefix="")
  *     wss://stream.binance.com:9443 + "" + /ws/btcusdt@bookTicker
  *     → wss://stream.binance.com:9443/ws/btcusdt@bookTicker
  *
- *   markprice-usdm-optical pod  (product=usdm, symbols=[LITEUSDT, CRDOUSDT, ALABUSDT], stream=markPrice@1s, path=/market)
+ *   markprice-usdm-optical pod  (product=usdm, symbols=[LITEUSDT, CRDOUSDT, ALABUSDT], stream=markPrice@1s, route-prefix=/market)
  *     wss://fstream.binance.com + /market + /stream?streams=liteusdt@markPrice@1s/crdousdt@markPrice@1s/alabusdt@markPrice@1s
  *     → wss://fstream.binance.com/market/stream?streams=liteusdt@markPrice@1s/crdousdt@markPrice@1s/alabusdt@markPrice@1s
  *
@@ -45,12 +45,12 @@ public final class BinanceProperties {
     private BinanceProperties() {}
 
     /**
-     * product별 접속 주소. Subscription의 product가 어느 쪽을 쓸지 고른다 (CollectorRunner.baseUrl()).
+     * product별 접속 주소. Subscription의 product가 어느 쪽을 쓸지 고른다 (CollectorRunner.run()의 switch).
      *
      * - spot        : Spot 접속 주소
      * - usdmFutures : USD-M 선물 접속 주소 (yaml 키는 usdm-futures, product 값은 usdm)
      * - restapiUrl  : REST API base. 아직 쓰지 않는다(마켓 스트림만 구독 중) — 나중에 REST 폴백(markPrice 등)용
-     * - wssUrl      : WebSocket 마켓 스트림 base. 뒤에 path(/public, /market)와 /ws, /stream이 붙는다
+     * - wssUrl      : WebSocket 마켓 스트림 base. 뒤에 route-prefix(/public, /market)와 /ws, /stream이 붙는다
      */
     @Validated
     @ConfigurationProperties(prefix = "binance.endpoint")
@@ -84,20 +84,21 @@ public final class BinanceProperties {
         @NotBlank String assetClass, // crypto / stock
         @NotBlank String sector, // crypto : sov / l1, stock : optical / semi
         @NotEmpty List<@NotBlank String> symbols, // sov : [BTCUSDT, ETHUSDT, ...] / optical : [LITEUSDT, CRDOUSDT, ALABUSDT]
-        @NotEmpty List<@Valid StreamSpec> streams // [stream1, stream2, ...] => stream1.stream / stream1.path / stream1.topic, ..
+        @NotEmpty List<@Valid StreamSpec> streams // [stream1, stream2, ...] => stream1.stream / stream1.routePrefix / stream1.topic, ..
     ) {
 
         /**
          * 소켓 하나의 구독 정보.
          *
-         * - stream : Binance 스트림 이름 (bookTicker, aggTrade, depth@100ms, markPrice@1s ...)
-         * - path   : URL 경로 접두어. USD-M은 /public(bookTicker, depth) · /market(aggTrade, markPrice)으로
-         *            나뉘고, Spot은 접두어가 없다(""). 틀리면 연결은 되지만 메시지가 오지 않는다
-         * - topic  : 이 소켓에서 받은 이벤트를 발행할 Kafka 토픽
+         * - stream      : Binance 스트림 이름 (bookTicker, aggTrade, depth@100ms, markPrice@1s ...)
+         * - routePrefix : 도메인 뒤에 붙는 라우팅 접두어 (yaml 키는 route-prefix). USD-M은 데이터 종류별로 서버 경로가
+         *                 나뉜다 — /public(bookTicker, depth) · /market(aggTrade, markPrice, kline 등).
+         *                 Spot은 접두어가 없다(""). 틀리면 연결은 되지만 메시지가 오지 않는다
+         * - topic       : 이 소켓에서 받은 이벤트를 발행할 Kafka 토픽
          */
         public record StreamSpec(
             @NotBlank String stream,
-            @NotNull String path,   // Spot은 ""(접두어 없음)이라 NotBlank가 아니라 NotNull
+            @NotNull String routePrefix,   // Spot은 ""(접두어 없음)이라 NotBlank가 아니라 NotNull
             @NotBlank String topic
         ) {}
     }

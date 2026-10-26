@@ -27,13 +27,13 @@ binance:
     symbols: [BTCUSDT]
     streams:
       - stream: bookTicker
-        path: ""
+        route-prefix: ""
         topic: binance.raw.spot.crypto.bookticker
       - stream: trade
-        path: ""
+        route-prefix: ""
         topic: binance.raw.spot.crypto.trade
       - stream: depth@100ms
-        path: ""
+        route-prefix: ""
         topic: binance.raw.spot.crypto.depth
 
 logging:

@@ -21,13 +21,13 @@ data:
         symbols: [BTCUSDT]
         streams:
           - stream: bookTicker
-            path: "/public"
+            route-prefix: "/public"
             topic: binance.raw.usdm.crypto.bookticker
           - stream: aggTrade
-            path: "/market"
+            route-prefix: "/market"
             topic: binance.raw.usdm.crypto.aggtrade
           - stream: depth@100ms
-            path: "/public"
+            route-prefix: "/public"
             topic: binance.raw.usdm.crypto.depth
 ---
 apiVersion: apps/v1
