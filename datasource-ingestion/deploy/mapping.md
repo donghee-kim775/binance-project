@@ -364,7 +364,7 @@ payload는 해석하지 않는다. 모든 스트림에 공통인 `s`(심볼)와 
 | ⑤ product | `spot` | `wss://stream.binance.com:9443`, path `""` |
 | ⑤ symbols | `[BTCUSDT]` (1개) | 단일 형식 `/ws/...` |
 | ⑤ streams | 3개 | 소켓 3개 |
-| ⑤⑦ sector | `sov` | 로그 라벨 `spot-sov-...`, envelope `sector: sov` ([cryptoSectorREADME.md](../../APIdocs/cryptoSectorREADME.md)) |
+| ⑤⑦ sector | `sov` | 로그 라벨 `spot-sov-...`, envelope `sector: sov` ([cryptoSectorREADME.md](../../docs/symbols/cryptoSectorREADME.md)) |
 | ⑦ group | `variable-rate` | 로그 라벨 `[variable-rate]` |
 
 ```text

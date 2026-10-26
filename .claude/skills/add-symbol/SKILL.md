@@ -22,7 +22,7 @@ argument-hint: "<심볼 또는 섹터> [product] [asset-class] [sector]"
 
 | 파일 | 고칠 내용 |
 | --- | --- |
-| `APIdocs/0TickerInfoTable.md` | 심볼 표에 행 추가 (기초자산, 분야) |
+| `docs/symbols/0TickerInfoTable.md` | 심볼 표에 행 추가 (기초자산, 분야) |
 | `datasource-ingestion/deploy/variable-rate/*.yaml` | 해당 pod ConfigMap의 `symbols`. 새 섹터면 파일을 새로 만든다 |
 | `datasource-ingestion/deploy/fixed-rate/*.yaml` | markPrice pod의 `symbols`. 새 섹터면 파일을 새로 만든다 |
 | `datasource-ingestion/deploy/kustomization.yaml` | 새 파일을 만들었으면 `resources`에 추가 |

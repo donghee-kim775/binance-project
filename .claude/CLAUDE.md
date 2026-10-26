@@ -9,7 +9,7 @@ Binance WebSocket 시장 데이터를 Kafka로 수집하고 Flink로 분석하�
 - 분석(dedup, basis join 등)은 **별도 Flink 앱**에서 한다. 수집 앱에 넣지 않는다.
 - `plan/`: 설계 결정 기록 (`ingestion/`, `topic/`, `consumer/`)
 - `Infra/`: kind 클러스터, Strimzi Kafka, Flink Operator
-- `APIdocs/`: Binance API 조사, 수집 심볼 표 (`0TickerInfoTable.md`)
+- `docs/`: Binance API 조사 (`binance-api/`, `streams/`), 수집 심볼 표와 섹터 분류 (`symbols/0TickerInfoTable.md`, `symbols/cryptoSectorREADME.md`), 초기 메모 (`notes/`)
 - `Insights/`: 인사이트 카탈로그와 인사이트별 계획
 - `servingapp/`: 서빙 계층 설계
 

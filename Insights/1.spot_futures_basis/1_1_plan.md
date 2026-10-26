@@ -116,7 +116,7 @@ flowchart LR
 | `spot-sov` | variable-rate | Active-Active (replicas 2) | `btcusdt@bookTicker` (pod는 trade, depth도 함께 수집) | `stream.binance.com:9443/ws/...` |
 | `markprice-usdm-sov` | fixed-rate | Active-Standby (replicas 1, `Recreate`) | `btcusdt@markPrice@1s` | `fstream.binance.com/market/ws/...` |
 
-- pod는 `<product>-<섹터>`로 이름 짓는다. BTC의 섹터는 `sov`다 ([cryptoSectorREADME.md](../../APIdocs/cryptoSectorREADME.md)).
+- pod는 `<product>-<섹터>`로 이름 짓는다. BTC의 섹터는 `sov`다 ([cryptoSectorREADME.md](../../docs/symbols/cryptoSectorREADME.md)).
 - markPrice는 `!markPrice@arr`(USD-M 전체)를 받아 거르지 않고, 필요한 심볼만 구독한다.
 - 수집 앱은 raw 이벤트를 envelope로 감싸 보내기만 한다. 중복 제거와 조인은 Flink에서 한다.
 

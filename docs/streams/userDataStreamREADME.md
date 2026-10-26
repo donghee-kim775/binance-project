@@ -4,9 +4,9 @@
 REST polling(`/api/v3/openOrders` 반복 호출)을 대체하며, 지연과 rate limit 소모가 훨씬 적다.
 2026-08-26 기준 공식 문서를 참고했다.
 
-- 전체 개요: [binanceWebSocketREADME.md](binanceWebSocketREADME.md)
+- 전체 개요: [binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md)
 - Market Stream: [spotMarketStreamREADME.md](spotMarketStreamREADME.md) · [usdmFuturesMarketStreamREADME.md](usdmFuturesMarketStreamREADME.md) · [coinmFuturesMarketStreamREADME.md](coinmFuturesMarketStreamREADME.md) · [optionsMarketStreamREADME.md](optionsMarketStreamREADME.md)
-- 상위 API 가이드: [binanceAPIREADME.md](binanceAPIREADME.md)
+- 상위 API 가이드: [binanceAPIREADME.md](../binance-api/binanceAPIREADME.md)
 
 핵심 특징:
 
@@ -346,7 +346,7 @@ REST(`/fapi/v2/positionRisk`, `/fapi/v1/openOrders`)로 상태를 다시 맞춘�
 ## 운영 시 주의사항
 
 커넥션 수명, ping/pong, 재연결, 보안 체크리스트는 시장 공통이므로
-[binanceWebSocketREADME.md](binanceWebSocketREADME.md#운영-시-주의사항)를 함께 참고한다.
+[binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md#운영-시-주의사항)를 함께 참고한다.
 아래는 User Data Stream에 특히 중요한 항목이다.
 
 - User Data 이벤트는 **at-least-once**다. 중복 도착을 전제로 멱등 키를 설계한다.

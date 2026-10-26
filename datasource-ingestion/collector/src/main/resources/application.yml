@@ -7,7 +7,7 @@ spring:
 binance:
   # endpoint: 환경(테스트넷/프로덕션)에 따라서만 달라지는 product별 접속 주소 → BinanceProperties.Endpoint
   # — 모든 Pod가 같은 값이라 여기에만 두고 ConfigMap에는 넣지 않는다. 도메인 변경 시 이 값만 바꾼다.
-  # (binanceAPIREADME.md, binanceWebSocketREADME.md 참고)
+  # (docs/binance-api/binanceAPIREADME.md, binanceWebSocketREADME.md 참고)
   endpoint:
     spot:
       restapi-url: https://api.binance.com

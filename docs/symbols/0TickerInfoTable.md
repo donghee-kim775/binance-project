@@ -71,6 +71,6 @@ envelope `sector`: `sov` (코인 섹터 분류는 [cryptoSectorREADME.md](crypto
 
 ## 참고
 
-- **수집 시간:** TradFi 무기한 선물은 24시간 거래되지만, 기초자산 시장이 닫힌 시간에는 거래량이 적고 가격 움직임이 다르다. 고정 rate 그룹과 변동성 그룹을 나눌 때 함께 고려한다 ([plan.md](../plan/ingestion/plan.md) 고려 사항 1).
+- **수집 시간:** TradFi 무기한 선물은 24시간 거래되지만, 기초자산 시장이 닫힌 시간에는 거래량이 적고 가격 움직임이 다르다. 고정 rate 그룹과 변동성 그룹을 나눌 때 함께 고려한다 ([plan.md](../../plan/ingestion/plan.md) 고려 사항 1).
 - **목록 갱신:** 심볼은 계속 추가되고 상장 폐지된다. 운영 시에는 이 표를 하드코딩하지 말고, `exchangeInfo`를 주기적으로 조회해 `status`가 `TRADING`인 심볼만 구독한다.
 - **분류 제외:** `AGPUUSDT`처럼 티커만으로 기초자산을 확인하지 못한 종목은 넣지 않았다.

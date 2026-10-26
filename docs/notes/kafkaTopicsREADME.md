@@ -1,8 +1,8 @@
 # Kafka 토픽 설계 (Binance Collector)
 
-[binanceWebSocketREADME.md](binanceWebSocketREADME.md)에서 다룬 Market Stream / User Data Stream을
+[binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md)에서 다룬 Market Stream / User Data Stream을
 Kafka에 어떻게 태울지 정리한 문서다. 전체 CDC 파이프라인(Debezium 경유) 관점은
-[README.md](../README.md)의 "Kafka 토픽 설계" 절을 참고한다. 이 문서는 **Collector가 직접 발행하는
+[README.md](../../README.md)의 "Kafka 토픽 설계" 절을 참고한다. 이 문서는 **Collector가 직접 발행하는
 raw 토픽**과, 그 위에서 시도해볼 만한 **스트림 조인**에 집중한다.
 
 ---

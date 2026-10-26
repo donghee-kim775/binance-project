@@ -3,10 +3,10 @@
 USDT/USDC로 정산되는 무기한·만기 선물 시장의 공개 WebSocket 스트림 정리다. API 키는 필요 없다.
 2026-08-26 기준 공식 문서를 참고했다.
 
-- 전체 개요: [binanceWebSocketREADME.md](binanceWebSocketREADME.md)
+- 전체 개요: [binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md)
 - 계정 이벤트: [userDataStreamREADME.md](userDataStreamREADME.md)
 - 관련 시장: [coinmFuturesMarketStreamREADME.md](coinmFuturesMarketStreamREADME.md) · [optionsMarketStreamREADME.md](optionsMarketStreamREADME.md)
-- 상위 API 가이드: [binanceAPIREADME.md](binanceAPIREADME.md)
+- 상위 API 가이드: [binanceAPIREADME.md](../binance-api/binanceAPIREADME.md)
 
 ---
 
@@ -183,7 +183,7 @@ Delivery처럼 한 계좌에 여러 심볼 체계가 섞이는 USD-M 특성상 �
 
 로컬 오더북을 유지할 때는 매 이벤트의 `pu`가 직전 이벤트의 `u`와 같은지 검증한다. 어긋나면
 스냅샷부터 다시 동기화해야 한다(Spot은 `pu`가 없어 `U`가 이전 이벤트의 `u+1`인지로 검증한다).
-스냅샷 동기화 절차는 [binanceAPIREADME.md](binanceAPIREADME.md)의 "로컬 오더북" 절 참고.
+스냅샷 동기화 절차는 [binanceAPIREADME.md](../binance-api/binanceAPIREADME.md)의 "로컬 오더북" 절 참고.
 
 ## 6. markPrice — 마크 가격과 펀딩비
 
@@ -272,7 +272,7 @@ Nasdaq에 상장된 개별 주식을 기초자산으로 삼는 `TRADFI_PERPETUAL
 ## 운영 시 주의사항
 
 커넥션 수명, ping/pong, 재연결, 보안 체크리스트는 시장 공통이므로
-[binanceWebSocketREADME.md](binanceWebSocketREADME.md#운영-시-주의사항)를 따른다.
+[binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md#운영-시-주의사항)를 따른다.
 
 ---
 

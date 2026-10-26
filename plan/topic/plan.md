@@ -1,6 +1,6 @@
 # Kafka Topic 설계
 
-Ingestion pod가 Binance WSS에서 받은 이벤트를 어떤 토픽에 넣을지 정리한다. pod 구성은 [ingestion/plan.md](../ingestion/plan.md), 수집 심볼은 [0TickerInfoTable.md](../../APIdocs/0TickerInfoTable.md)를 기준으로 한다.
+Ingestion pod가 Binance WSS에서 받은 이벤트를 어떤 토픽에 넣을지 정리한다. pod 구성은 [ingestion/plan.md](../ingestion/plan.md), 수집 심볼은 [0TickerInfoTable.md](../../docs/symbols/0TickerInfoTable.md)를 기준으로 한다.
 
 ## [고려 사항 1. 토픽을 나누는 단위]
 
@@ -79,7 +79,7 @@ product  : spot / usdm
 - **선택 : c.**
 
     - `sector`의 의미가 자산 종류와 상관없이 **"이 종목이 무슨 역할을 하는가"** 하나로 통일된다. Flink에서 `GROUP BY sector`를 해도 같은 축의 값만 나온다.
-    - 분류 기준을 지금 [cryptoSectorREADME.md](../../APIdocs/cryptoSectorREADME.md)로 정해 두면, crypto 섹터 pod(`l1` 바스켓 등)를 추가할 때 envelope 규칙을 다시 바꿀 필요가 없다.
+    - 분류 기준을 지금 [cryptoSectorREADME.md](../../docs/symbols/cryptoSectorREADME.md)로 정해 두면, crypto 섹터 pod(`l1` 바스켓 등)를 추가할 때 envelope 규칙을 다시 바꿀 필요가 없다.
     - 값은 ConfigMap의 `binance.subscription.sector`로만 정해지므로 수집 앱 코드는 바뀌지 않는다. 현재 영향 범위는 BTC pod 3개의 설정 한 줄씩이다. pod 이름도 crypto와 stock 모두 `<product>-<섹터>` 규칙으로 맞췄다 (`spot-btcusdt` → `spot-sov`, `usdm-stock-optical` → `usdm-optical` 등, [ingestion/plan.md](../ingestion/plan.md) pod 그룹 규칙).
     - BTC는 `sov`다.
 
@@ -291,7 +291,7 @@ erDiagram
 }
 ```
 
-- `sector`: 같은 토픽 안에서 종목의 역할(섹터)을 구분한다. stock은 `optical`, `semi`, crypto는 [cryptoSectorREADME.md](../../APIdocs/cryptoSectorREADME.md) 기준(`sov`, `l1` 등) (고려 사항 4).
+- `sector`: 같은 토픽 안에서 종목의 역할(섹터)을 구분한다. stock은 `optical`, `semi`, crypto는 [cryptoSectorREADME.md](../../docs/symbols/cryptoSectorREADME.md) 기준(`sov`, `l1` 등) (고려 사항 4).
 - `collector_id`: pod 이름 (`HOSTNAME` 환경변수). Active-Active에서 어느 pod가 보낸 메시지인지 추적한다.
 - `payload`: Binance 원본 그대로 둔다. 필드를 고치지 않아야 나중에 재처리할 수 있다.
 

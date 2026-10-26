@@ -1,6 +1,6 @@
 # Collector 인사이트 — 웹소켓 · Kafka 토픽 정리
 
-spot/usdm/coinm/options 4개 시장 문서([binanceWebSocketREADME.md](binanceWebSocketREADME.md))를 필드 단위로
+spot/usdm/coinm/options 4개 시장 문서([binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md))를 필드 단위로
 전부 정리하면서 나온 인사이트를 모았다. 인사이트별로 **어떤 웹소켓 스트림을 쓸지**, **어떤 Kafka 토픽·키로
 발행/조인할지**를 같이 적는다. 토픽 기본 설계는 [kafkaTopicsREADME.md](kafkaTopicsREADME.md)를 따르고,
 이 문서는 거기서 빠져 있거나 수정이 필요한 부분 위주로 다룬다.
@@ -21,7 +21,7 @@ spot/usdm/coinm/options 4개 시장 문서([binanceWebSocketREADME.md](binanceWe
 
 **웹소켓**: `<symbol>@trade`, `<symbol>@aggTrade`, `<symbol>@bookTicker`, `<symbol>@depth@100ms` —
 Spot(`stream.binance.com`)과 Futures(`fstream.binance.com`/`dstream.binance.com`)를 **별도 커넥션·별도
-파서**로 분리한다(이미 [binanceWebSocketREADME.md](binanceWebSocketREADME.md#1-시장-분류와-도메인)의 원칙).
+파서**로 분리한다(이미 [binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md#1-시장-분류와-도메인)의 원칙).
 
 **Kafka**: 파서를 분리해도 목적지 토픽(`binance.raw.trade` 등)은 공유할 수 있다. 단, §5의 키 충돌
 문제를 반드시 같이 해결해야 한다.
@@ -210,6 +210,6 @@ binance.raw.bookticker/ticker → KTable<symbol, lastPrice>
 
 ## 참고 문서
 
-- [binanceWebSocketREADME.md](binanceWebSocketREADME.md) — 시장별 도메인·운영 규칙
+- [binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md) — 시장별 도메인·운영 규칙
 - [kafkaTopicsREADME.md](kafkaTopicsREADME.md) — 토픽 기본 설계와 조인 아이디어 원본
-- [spotMarketStreamREADME.md](spotMarketStreamREADME.md) · [usdmFuturesMarketStreamREADME.md](usdmFuturesMarketStreamREADME.md) · [coinmFuturesMarketStreamREADME.md](coinmFuturesMarketStreamREADME.md) · [optionsMarketStreamREADME.md](optionsMarketStreamREADME.md)
+- [spotMarketStreamREADME.md](../streams/spotMarketStreamREADME.md) · [usdmFuturesMarketStreamREADME.md](../streams/usdmFuturesMarketStreamREADME.md) · [coinmFuturesMarketStreamREADME.md](../streams/coinmFuturesMarketStreamREADME.md) · [optionsMarketStreamREADME.md](../streams/optionsMarketStreamREADME.md)
