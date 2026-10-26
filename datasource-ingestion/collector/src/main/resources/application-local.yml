@@ -1,0 +1,5 @@
+# local 프로파일 — 내 PC에서 단일 셸로 실행할 때 (./gradlew bootRun, java -jar). 프로파일을 안 주면 이 파일이 쓰인다
+# 다른 주소를 쓰려면 환경변수 SPRING_KAFKA_BOOTSTRAP_SERVERS로 덮어쓴다 (Spring 표준 키라 자동으로 인식)
+spring:
+  kafka:
+    bootstrap-servers: localhost:9092

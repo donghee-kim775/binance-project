@@ -26,7 +26,8 @@ collector/
     ├── IngestionCollectorApplication.java   # main() — SpringApplication 부트스트랩
     ├── config/
     │   ├── BinanceProperties.java           # binance.* — Endpoint(접속 도메인, 환경별) · Subscription(구독 설정, pod별)
-    │   └── AsyncConfig.java                 # 메시지 처리용 스레드풀
+    │   ├── AsyncConfig.java                 # 메시지 처리용 스레드풀
+    │   └── KafkaConfig.java                 # Kafka 접속 주소(spring.kafka.bootstrap-servers) — 지금은 시작 로그만
     ├── runner/
     │   └── CollectorRunner.java             # streams를 돌며 URL 조립 → 소켓 연결
     ├── collector/
@@ -59,6 +60,13 @@ collector/
 ```bash
 cd collector
 ./gradlew bootRun
+```
+
+프로파일을 주지 않으면 `local`로 뜨고, Kafka 주소는 `localhost:9092`다. 다른 주소를 쓰려면 환경변수
+`SPRING_KAFKA_BOOTSTRAP_SERVERS`를 준다 (K8s에서는 `release` 프로파일로 내부 DNS를 쓴다, [mapping.md](../deploy/mapping.md) ② 참고):
+
+```bash
+SPRING_KAFKA_BOOTSTRAP_SERVERS=localhost:29092 ./gradlew bootRun
 ```
 
 다른 구독 설정으로 실행하려면 설정 파일을 추가로 불러온다. 불러온 파일의 `binance.subscription` 블록이

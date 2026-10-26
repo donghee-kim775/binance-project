@@ -1,0 +1,6 @@
+# release 프로파일 — K8s Pod로 실행할 때 (deploy/common.yaml이 SPRING_PROFILES_ACTIVE=release로 켠다)
+# Kafka는 클러스터 내부 DNS로 접속한다: <Strimzi 클러스터>-kafka-bootstrap.<namespace>.svc:9092 (Infra/Kafka/Kafka-Cluster 참고)
+# 다른 주소를 쓰려면 환경변수 SPRING_KAFKA_BOOTSTRAP_SERVERS로 덮어쓴다 (deploy/common.yaml에 추가)
+spring:
+  kafka:
+    bootstrap-servers: binance-cluster-kafka-bootstrap.kafka.svc:9092

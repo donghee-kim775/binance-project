@@ -107,7 +107,19 @@ Spring Boot가 시작되면서 **Environment**(모든 설정값을 모아 둔 �
 
 1. jar 안의 `application.yml`(`classpath:/`)을 읽는다. → `binance.endpoint.*` 접속 도메인, `binance.subscription.*` 로컬 기본값
 2. `spring.config.additional-location`이 가리키는 `/config/application.yaml`을 읽어 같은 키를 **덮어쓴다**. → ConfigMap의 `binance.subscription.*`
-3. 환경변수(`SPRING_KAFKA_BOOTSTRAP_SERVERS`, `COLLECTOR_ID` 등)도 이 저장소에 함께 들어간다.
+3. 환경변수(`SPRING_PROFILES_ACTIVE`, `SPRING_KAFKA_BOOTSTRAP_SERVERS`, `COLLECTOR_ID` 등)도 이 저장소에 함께 들어간다.
+4. 활성 프로파일의 `application-<프로파일>.yml`을 읽는다. 프로파일을 안 주면 `local`이다 (`spring.profiles.default`).
+
+**Kafka 주소: 프로파일 + 환경변수**
+
+| 프로파일 | 켜지는 곳 | 파일 | `spring.kafka.bootstrap-servers` 기본값 |
+| --- | --- | --- | --- |
+| `local` | 아무것도 안 줄 때 (`bootRun`, `java -jar`) | `application-local.yml` | `localhost:9092` |
+| `release` | K8s — `common.yaml`의 `SPRING_PROFILES_ACTIVE: release` | `application-release.yml` | `binance-cluster-kafka-bootstrap.kafka.svc:9092` (클러스터 내부 DNS) |
+
+주소를 바꾸려면 환경변수 `SPRING_KAFKA_BOOTSTRAP_SERVERS`를 준다 (로컬: 셸에서 지정, K8s: `common.yaml`에 추가). `spring.kafka.bootstrap-servers`는 Spring 표준 키라, relaxed binding으로 이 환경변수가 자동으로 같은 키가 되고 yml보다 우선한다.
+
+이 값은 [`config/KafkaConfig.java`](../collector/src/main/java/com/ingestion/config/KafkaConfig.java)가 `Environment.getProperty("spring.kafka.bootstrap-servers", "")`로 읽어 시작할 때 `[kafka] bootstrap-servers=...` 로그로 남긴다. `spring-kafka`를 켜면 Spring Boot가 같은 키로 `KafkaTemplate`을 만든다.
 
 **`SPRING_CONFIG_ADDITIONAL_LOCATION`을 Spring이 읽는 이유** ([`deploy/Dockerfile:37`](Dockerfile#L37))
 
@@ -198,7 +210,7 @@ public record Subscription(            // BinanceProperties 안의 nested record
     - `sector`도 필수다. pod 이름, pod label, 로그 라벨이 모두 섹터를 쓰기 때문이다. Spring은 yaml의 `sector: null`을 빈 문자열로 바인딩하므로 `@NotBlank`에 걸린다.
     - `route-prefix`는 `@NotNull`이다. Spot은 접두어가 없어 `""`가 정상값이다.
     - `restapiUrl`은 아직 쓰지 않아 검사하지 않는다.
-- `streams`의 각 항목은 [`StreamSpec`](../collector/src/main/java/com/ingestion/config/BinanceProperties.java#L98)이 된다.
+- `streams`의 각 항목은 [`StreamSpec`](../collector/src/main/java/com/ingestion/config/BinanceProperties.java#L99)이 된다.
 
 ---
 
@@ -224,10 +236,10 @@ Spring이 나머지 Bean을 만들면서 ③의 설정 객체를 생성자로 �
 | --- | --- | --- |
 | [61~66](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L61-L66) | 접속 도메인 고르기 (`product` → `switch`) | `product` |
 | [69](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L69) | 항목마다 반복 (항목 하나 = 소켓 하나) | `streams` |
-| [73](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L73) | URL 조립: `baseUrl + route-prefix + `[`streamSuffix()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L100) | `route-prefix`, `symbols`, `stream` |
-| [82~85](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L82-L85) | `BinanceStreamClient` 생성, 로그 라벨([`streamLabel()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L110)), 메시지 콜백 등록 | `product`, `sector` |
-| [88](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L88) | `connect()` | — |
-| [92](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L92) | `CountDownLatch().await()`로 메인 스레드를 붙잡아 앱이 종료되지 않게 함 | — |
+| [74](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L74) | URL 조립: `baseUrl + route-prefix + `[`streamSuffix()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L105) | `route-prefix`, `symbols`, `stream` |
+| [83~87](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L83-L87) | `BinanceStreamClient` 생성, 로그 라벨([`streamLabel()`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L116)), 메시지 콜백 등록 | `product`, `sector` |
+| [90](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L90) | `connect()` | — |
+| [94](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L94) | `CountDownLatch().await()`로 메인 스레드를 붙잡아 앱이 종료되지 않게 함 | — |
 
 ### `product` → 접속 도메인
 

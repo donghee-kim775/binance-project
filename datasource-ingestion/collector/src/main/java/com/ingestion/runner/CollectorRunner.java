@@ -67,12 +67,13 @@ public class CollectorRunner implements ApplicationRunner {
 
         // streams 항목 하나 = 소켓 하나
         for (StreamSpec spec : subscription.streams()) {
+        // ── URL 조립 ─────────────────────────────────────────────
             // baseUrl + routePrefix(/public · /market · "") + /ws/... 또는 /stream?streams=...
             // USD-M은 routePrefix를 틀리면 연결만 되고 메시지가 전혀 안 온다
             // (developers.binance.com USDⓈ-M Futures WebSocket Market Streams 문서 참고)
             URI uri = URI.create(baseUrl + spec.routePrefix() + streamSuffix(spec.stream()));
 
-            // BinanceStreamClient
+        // ── BinanceStreamClient ─────────────────────────────────────────────
             // parameter 1 : streamlabel  
             // (예: 
             //  - "usdm-optical-markPrice@1s"
@@ -80,9 +81,10 @@ public class CollectorRunner implements ApplicationRunner {
             // parameter 2 : websocket uri
             // parameter 3 : onMessage callback — 수신 시각은 콜백 스레드에서 바로 찍는다
             BinanceStreamClient client = new BinanceStreamClient(
-                    streamLabel(spec),
-                    uri,
-                    raw -> ingestService.onRaw(spec, raw, System.currentTimeMillis()));
+                streamLabel(spec),
+                uri,
+                raw -> ingestService.onRaw(spec, raw, System.currentTimeMillis())
+            );
 
             clients.add(client);
             client.connect();
@@ -94,16 +96,20 @@ public class CollectorRunner implements ApplicationRunner {
 
     // ── URL 조립 ─────────────────────────────────────────────
     // * symbols → 스트림 경로. Binance 스트림 이름은 소문자 심볼을 쓴다
-    //   심볼 1개    : /ws/btcusdt@bookTicker
-    //   심볼 여러 개 : /stream?streams=liteusdt@markPrice@1s/crdousdt@markPrice@1s/...
+    //   심볼 단일    : "/ws/"              +  btcusdt@bookTicker
+    //
+    //   심볼 다중    : "/stream?streams="  +  liteusdt@markPrice@1s/
+    //                                        crdousdt@markPrice@1s/
+    //                                        ...
     //                 (combined — 메시지가 {"stream": ..., "data": {...}}로 한 겹 감싸져 온다)
     private String streamSuffix(String stream) {
-        List<String> names = subscription.symbols().stream()
+        List<String> symbolList = subscription.symbols().stream()
                 .map(symbol -> symbol.toLowerCase() + "@" + stream)
                 .toList();
-        return names.size() == 1
-                ? "/ws/" + names.get(0)
-                : "/stream?streams=" + String.join("/", names);
+
+        return symbolList.size() == 1
+                ? "/ws/" + symbolList.get(0)
+                : "/stream?streams=" + String.join("/", symbolList);
     }
 
     // * 로그 구분용 라벨 — pod 이름과 같이 섹터(sov, optical)로 구분한다 (예: usdm-optical-bookTicker)

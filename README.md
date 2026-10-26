@@ -86,7 +86,8 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 │   ├── binance-api/       Binance REST/WebSocket 전반, 도메인 · 커넥션 규칙
 │   ├── streams/           시장별 스트림 필드, 검증용 노트북(poc/)
 │   ├── symbols/           수집 심볼 표, crypto 섹터 분류
-│   └── notes/             초기 토픽 설계 초안, collector 메모
+│   ├── notes/             초기 토픽 설계 초안, collector 메모
+│   └── spring/            Spring Boot 동작 정리 (설정 로딩 · 프로파일)
 ├── plan/                  설계 결정 기록
 │   ├── ingestion/         Ingestion Pod 구성, HA, 중복 제거
 │   ├── topic/             Kafka 토픽 설계, Insight 1 토픽 흐름
@@ -220,6 +221,7 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 | | [userDataStreamREADME.md](docs/streams/userDataStreamREADME.md) | 계정 이벤트(주문/잔고/포지션) 스트림 |
 | `notes/` | [kafkaTopicsREADME.md](docs/notes/kafkaTopicsREADME.md) | 초기 토픽 설계 초안과 조인 아이디어 (현재 토픽 설계는 [topic/plan.md](plan/topic/plan.md)) |
 | | [collectorInsightsREADME.md](docs/notes/collectorInsightsREADME.md) | 시장별 스키마 차이, 토픽/키 설계 시 주의점 |
+| `spring/` | [configuration.md](docs/spring/configuration.md) | 설정 출처와 탐색 순서, 프로파일(local/release), 환경변수 이름 규칙, 코드에서 값 받는 법 |
 
 [docs/streams/poc/](docs/streams/poc/)에는 각 시장 WebSocket을 실제로 연결해본 검증용 Jupyter 노트북이 있다.
 

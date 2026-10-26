@@ -3,6 +3,11 @@ spring:
     name: ingestion-collector # app name
   main:
     web-application-type: none # servlet / reactive / none
+  # 실행 환경 프로파일 — 아무것도 안 주면 local (bootRun, java -jar)
+  #   local   : application-local.yml   → Kafka localhost:9092
+  #   release : application-release.yml → Kafka K8s 내부 DNS (deploy/common.yaml이 SPRING_PROFILES_ACTIVE=release로 켬)
+  profiles:
+    default: local
 
 binance:
   # endpoint: 환경(테스트넷/프로덕션)에 따라서만 달라지는 product별 접속 주소 → BinanceProperties.Endpoint
