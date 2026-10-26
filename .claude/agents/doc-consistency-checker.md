@@ -11,7 +11,7 @@ model: sonnet
 
 - `README.md`
 - `plan/**/*.md`
-- `APIdocs/0TickerInfoTable.md`, `APIdocs/kafkaTopicsREADME.md`
+- `docs/symbols/0TickerInfoTable.md`, `docs/notes/kafkaTopicsREADME.md`
 - `Insights/**/*_plan.md`, `servingapp/plan.md`
 - `datasource-ingestion/README.md`, `datasource-ingestion/deploy/**` (yaml, `mapping.md`)
 - `datasource-ingestion/collector/src/main/**` (토픽 이름, 키, 구독 스트림)

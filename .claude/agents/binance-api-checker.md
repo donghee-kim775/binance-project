@@ -17,7 +17,7 @@ model: sonnet
 - `datasource-ingestion/deploy/**/*.yaml`의 ConfigMap (`symbols`, `streams`, `path`)
 - `datasource-ingestion/collector/src/main/**` (URL 조립, 파싱하는 필드)
 - `plan/ingestion/plan.md`의 pod별 구독 URL
-- `APIdocs/*MarketStreamREADME.md`의 필드 정리
+- `docs/streams/*MarketStreamREADME.md`의 필드 정리
 
 ## 확인 항목
 

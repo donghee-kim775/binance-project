@@ -117,7 +117,7 @@ Stream 별로 application 을 만들어서 1:1 로 관리해야하나? `topic <-
 
 ## [Ingestion Pod 구성도]
 
-[0TickerInfoTable.md](../../APIdocs/0TickerInfoTable.md)의 수집 심볼을 기준으로, 위 고려 사항을 적용했을 때 뜨는 pod 구성이다. 토픽 설계는 [topic/plan.md](../topic/plan.md) 참고.
+[0TickerInfoTable.md](../../docs/symbols/0TickerInfoTable.md)의 수집 심볼을 기준으로, 위 고려 사항을 적용했을 때 뜨는 pod 구성이다. 토픽 설계는 [topic/plan.md](../topic/plan.md) 참고.
 
 ### 수집 대상
 
@@ -138,7 +138,7 @@ Stream 별로 application 을 만들어서 1:1 로 관리해야하나? `topic <-
 - variable-rate pod 하나는 **스트림 종류마다 소켓 1개씩, 총 3개**를 연다. 섹터 pod는 같은 스트림의 심볼들을 combined stream 하나로 묶는다.
 - fixed-rate pod는 섹터에 속한 심볼의 `<symbol>@markPrice@1s`만 combined로 구독한다 (`!markPrice@arr` 전체 구독 후 필터링하지 않음).
 - stock은 기초 시장 장외 시간에 트래픽이 거의 없어 심볼별이 아니라 섹터별로 묶는다.
-- pod 이름은 crypto와 stock 모두 섹터로 짓고 자산 종류는 넣지 않는다 (`usdm-optical`, `markprice-usdm-sov`). 자산 종류는 pod label `asset-class`와 토픽 이름에 있다. 그래서 **섹터 값은 자산 종류끼리 겹치지 않게** 정한다 (crypto 섹터 값은 [cryptoSectorREADME.md](../../APIdocs/cryptoSectorREADME.md)). 로그 라벨 `<product>-<섹터>-<stream>`도 pod 이름과 같은 앞부분을 쓴다. crypto는 심볼 하나의 트래픽이 크므로, 같은 섹터에 심볼을 추가할 때 한 pod로 묶을지 섹터 안에서 pod를 나눌지 그때 다시 판단한다.
+- pod 이름은 crypto와 stock 모두 섹터로 짓고 자산 종류는 넣지 않는다 (`usdm-optical`, `markprice-usdm-sov`). 자산 종류는 pod label `asset-class`와 토픽 이름에 있다. 그래서 **섹터 값은 자산 종류끼리 겹치지 않게** 정한다 (crypto 섹터 값은 [cryptoSectorREADME.md](../../docs/symbols/cryptoSectorREADME.md)). 로그 라벨 `<product>-<섹터>-<stream>`도 pod 이름과 같은 앞부분을 쓴다. crypto는 심볼 하나의 트래픽이 크므로, 같은 섹터에 심볼을 추가할 때 한 pod로 묶을지 섹터 안에서 pod를 나눌지 그때 다시 판단한다.
 - pod template에는 `product`, `asset-class`, `sector` label을 붙여 `kubectl get pods -L sector`, `-l sector=optical`로 조회한다.
 
 ### 구성도

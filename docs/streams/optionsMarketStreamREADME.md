@@ -3,10 +3,10 @@
 BTC, ETH 등 가상자산을 기초자산으로 하는 유러피언 옵션의 공개 WebSocket 스트림 정리다.
 API 키는 필요 없다. 2026-08-26 기준 공식 문서를 참고했다.
 
-- 전체 개요: [binanceWebSocketREADME.md](binanceWebSocketREADME.md)
+- 전체 개요: [binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md)
 - 계정 이벤트: [userDataStreamREADME.md](userDataStreamREADME.md)
 - 관련 시장: [usdmFuturesMarketStreamREADME.md](usdmFuturesMarketStreamREADME.md) · [coinmFuturesMarketStreamREADME.md](coinmFuturesMarketStreamREADME.md)
-- 상위 API 가이드: [binanceAPIREADME.md](binanceAPIREADME.md)
+- 상위 API 가이드: [binanceAPIREADME.md](../binance-api/binanceAPIREADME.md)
 
 ---
 
@@ -36,7 +36,7 @@ Spot/Futures와 스트림 이름 체계가 다르다.
 | `<underlying>@index` | 기초자산 지수 가격 |
 | `<underlyingAsset>@openInterest@<expiration>` | 미결제약정 |
 
-> **참고:** 이 문서의 payload는 공식 문서 기준이며, 아래 [PoC 노트북](../APIpoc/options_market_stream.ipynb)에서
+> **참고:** 이 문서의 payload는 공식 문서 기준이며, 아래 [PoC 노트북](poc/options_market_stream.ipynb)에서
 > 실제 실행 시 이 환경의 WebSocket 연결(`nbstream.binance.com`)이 handshake 단계에서 404를 반환해
 > 직접 캡처하지는 못했다(REST는 정상 동작 확인함). 필드가 실제와 다르면 공식 문서를 우선한다.
 
@@ -133,7 +133,7 @@ Ticker 페이지를 확인한다.
 ## 운영 시 주의사항
 
 커넥션 수명, ping/pong, 재연결, 보안 체크리스트는 시장 공통이므로
-[binanceWebSocketREADME.md](binanceWebSocketREADME.md#운영-시-주의사항)를 따른다.
+[binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md#운영-시-주의사항)를 따른다.
 
 ---
 

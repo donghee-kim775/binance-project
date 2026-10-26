@@ -3,9 +3,9 @@
 실제 코인을 사고파는 현물 시장의 공개 WebSocket 스트림 정리다. API 키는 필요 없다.
 2026-08-26 기준 공식 문서를 참고했다.
 
-- 전체 개요: [binanceWebSocketREADME.md](binanceWebSocketREADME.md)
+- 전체 개요: [binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md)
 - 계정 이벤트: [userDataStreamREADME.md](userDataStreamREADME.md)
-- 상위 API 가이드: [binanceAPIREADME.md](binanceAPIREADME.md)
+- 상위 API 가이드: [binanceAPIREADME.md](../binance-api/binanceAPIREADME.md)
 
 ---
 
@@ -148,7 +148,7 @@ stream.binance.com
 | `!ticker@arr` | 전 심볼 ticker | 1000ms |
 
 `@depth`(diff)만으로는 오더북을 만들 수 없다. REST 스냅샷과 동기화가 필요하다.
-자세한 절차는 [binanceAPIREADME.md](binanceAPIREADME.md)의 "로컬 오더북" 절 참고.
+자세한 절차는 [binanceAPIREADME.md](../binance-api/binanceAPIREADME.md)의 "로컬 오더북" 절 참고.
 
 ---
 
@@ -172,7 +172,7 @@ async def main():
 ```
 
 운영 시 커넥션 수명, ping/pong, 재연결, 보안 체크리스트는
-[binanceWebSocketREADME.md](binanceWebSocketREADME.md#운영-시-주의사항) 참고.
+[binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md#운영-시-주의사항) 참고.
 
 ---
 

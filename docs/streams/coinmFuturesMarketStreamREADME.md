@@ -3,10 +3,10 @@
 코인 자체로 증거금·정산을 하는 선물 시장의 공개 WebSocket 스트림 정리다. API 키는 필요 없다.
 2026-08-26 기준 공식 문서를 참고했다.
 
-- 전체 개요: [binanceWebSocketREADME.md](binanceWebSocketREADME.md)
+- 전체 개요: [binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md)
 - 계정 이벤트: [userDataStreamREADME.md](userDataStreamREADME.md)
 - 관련 시장: [usdmFuturesMarketStreamREADME.md](usdmFuturesMarketStreamREADME.md) · [optionsMarketStreamREADME.md](optionsMarketStreamREADME.md)
-- 상위 API 가이드: [binanceAPIREADME.md](binanceAPIREADME.md)
+- 상위 API 가이드: [binanceAPIREADME.md](../binance-api/binanceAPIREADME.md)
 
 ---
 
@@ -206,7 +206,7 @@ USD-M과 동일한 구조다. `r`이 현재 펀딩비율이다.
 ## 운영 시 주의사항
 
 커넥션 수명, ping/pong, 재연결, 보안 체크리스트는 시장 공통이므로
-[binanceWebSocketREADME.md](binanceWebSocketREADME.md#운영-시-주의사항)를 따른다.
+[binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md#운영-시-주의사항)를 따른다.
 
 ---
 

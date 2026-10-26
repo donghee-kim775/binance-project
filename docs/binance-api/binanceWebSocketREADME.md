@@ -3,15 +3,15 @@
 Binance WebSocket을 시장(product)별로 나누어 정리한 문서다. 2026-08-26 기준 공식 문서를 참고했다.
 
 - 상위 API 가이드: [binanceAPIREADME.md](binanceAPIREADME.md)
-- 프로젝트 개요: [README.md](../README.md)
+- 프로젝트 개요: [README.md](../../README.md)
 
 시장별 상세 문서 (Market Stream):
 
-- [spotMarketStreamREADME.md](spotMarketStreamREADME.md) — Spot (현물)
-- [usdmFuturesMarketStreamREADME.md](usdmFuturesMarketStreamREADME.md) — USD-M Futures
-- [coinmFuturesMarketStreamREADME.md](coinmFuturesMarketStreamREADME.md) — COIN-M Futures
-- [optionsMarketStreamREADME.md](optionsMarketStreamREADME.md) — Options
-- [userDataStreamREADME.md](userDataStreamREADME.md) — User Data Stream (모든 시장의 계정 이벤트)
+- [spotMarketStreamREADME.md](../streams/spotMarketStreamREADME.md) — Spot (현물)
+- [usdmFuturesMarketStreamREADME.md](../streams/usdmFuturesMarketStreamREADME.md) — USD-M Futures
+- [coinmFuturesMarketStreamREADME.md](../streams/coinmFuturesMarketStreamREADME.md) — COIN-M Futures
+- [optionsMarketStreamREADME.md](../streams/optionsMarketStreamREADME.md) — Options
+- [userDataStreamREADME.md](../streams/userDataStreamREADME.md) — User Data Stream (모든 시장의 계정 이벤트)
 
 ---
 
@@ -23,10 +23,10 @@ product별로 커넥션·파서·저장 스키마를 분리하는 것이 안전�
 
 | 분류 | 시장 | Market Stream 도메인 | REST Base | 상세 문서 |
 | --- | --- | --- | --- | --- |
-| Spot | 현물 | `wss://stream.binance.com:9443` | `https://api.binance.com` | [spotMarketStreamREADME.md](spotMarketStreamREADME.md) |
-| Derivatives | USD-M Futures | `wss://fstream.binance.com` | `https://fapi.binance.com` | [usdmFuturesMarketStreamREADME.md](usdmFuturesMarketStreamREADME.md) |
-| Derivatives | COIN-M Futures | `wss://dstream.binance.com` | `https://dapi.binance.com` | [coinmFuturesMarketStreamREADME.md](coinmFuturesMarketStreamREADME.md) |
-| Derivatives | Options | `wss://nbstream.binance.com/eoptions` | `https://eapi.binance.com` | [optionsMarketStreamREADME.md](optionsMarketStreamREADME.md) |
+| Spot | 현물 | `wss://stream.binance.com:9443` | `https://api.binance.com` | [spotMarketStreamREADME.md](../streams/spotMarketStreamREADME.md) |
+| Derivatives | USD-M Futures | `wss://fstream.binance.com` | `https://fapi.binance.com` | [usdmFuturesMarketStreamREADME.md](../streams/usdmFuturesMarketStreamREADME.md) |
+| Derivatives | COIN-M Futures | `wss://dstream.binance.com` | `https://dapi.binance.com` | [coinmFuturesMarketStreamREADME.md](../streams/coinmFuturesMarketStreamREADME.md) |
+| Derivatives | Options | `wss://nbstream.binance.com/eoptions` | `https://eapi.binance.com` | [optionsMarketStreamREADME.md](../streams/optionsMarketStreamREADME.md) |
 
 ---
 
@@ -49,7 +49,7 @@ User Data Stream ──> account collector ──> account_events  (민감, 저�
 ```
 
 User Data Stream의 연결 방식(Spot WebSocket API / Futures·Options listenKey)과 이벤트 상세는
-[userDataStreamREADME.md](userDataStreamREADME.md) 참고.
+[userDataStreamREADME.md](../streams/userDataStreamREADME.md) 참고.
 
 ---
 
@@ -71,7 +71,7 @@ User Data Stream의 연결 방식(Spot WebSocket API / Futures·Options listenKe
 
 - `event_time`(E)과 `receive_time`(로컬 수신 시각)을 **둘 다 저장한다.** 차이가 지연 지표가 된다.
 - User Data Stream 특유의 멱등 키 설계, at-least-once 처리, reconciliation 절차는
-  [userDataStreamREADME.md](userDataStreamREADME.md#운영-시-주의사항) 참고.
+  [userDataStreamREADME.md](../streams/userDataStreamREADME.md#운영-시-주의사항) 참고.
 
 ### 보안
 
@@ -109,8 +109,8 @@ Futures Stream : wss://fstream.binancefuture.com
 시장 수집 / 계정 수집 / 주문 실행을 **프로세스와 키 권한 수준에서 분리**하면
 장애와 키 유출의 영향 범위가 크게 줄어든다.
 
-Kafka 토픽 설계와 스트림 조인(join) 아이디어는 [kafkaTopicsREADME.md](kafkaTopicsREADME.md) 참고.
-PoC 코드는 [poc/](../poc/) 디렉터리에 시장별 노트북(`spot_market_stream.ipynb` 등)으로 있다.
+Kafka 토픽 설계와 스트림 조인(join) 아이디어는 [kafkaTopicsREADME.md](../notes/kafkaTopicsREADME.md) 참고.
+PoC 코드는 [streams/poc/](../streams/poc/) 디렉터리에 시장별 노트북(`spot_market_stream.ipynb` 등)으로 있다.
 
 ---
 

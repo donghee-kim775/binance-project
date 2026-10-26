@@ -73,7 +73,7 @@ flowchart LR
 | stock (반도체) | USD-M | NVDAUSDT, AVGOUSDT, MRVLUSDT | variable-rate + fixed-rate(markPrice) |
 
 Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선정 기준은
-[0TickerInfoTable.md](APIdocs/0TickerInfoTable.md), Pod별 구독 URL은
+[0TickerInfoTable.md](docs/symbols/0TickerInfoTable.md), Pod별 구독 URL은
 [ingestion/plan.md](plan/ingestion/plan.md#ingestion-pod-구성도)에 있다.
 
 ---
@@ -82,7 +82,11 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 
 ```text
 .
-├── APIdocs/               Binance REST/WebSocket 조사 문서, 수집 심볼 표, 검증용 노트북(APIpoc/)
+├── docs/                  조사 문서
+│   ├── binance-api/       Binance REST/WebSocket 전반, 도메인 · 커넥션 규칙
+│   ├── streams/           시장별 스트림 필드, 검증용 노트북(poc/)
+│   ├── symbols/           수집 심볼 표, crypto 섹터 분류
+│   └── notes/             초기 토픽 설계 초안, collector 메모
 ├── plan/                  설계 결정 기록
 │   ├── ingestion/         Ingestion Pod 구성, HA, 중복 제거
 │   ├── topic/             Kafka 토픽 설계, Insight 1 토픽 흐름
@@ -108,10 +112,10 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 
 #### A-0. 리서치 · 설계 문서화
 
-- [x] Binance REST/WebSocket API 조사 및 정리 ([binanceAPIREADME.md](APIdocs/binanceAPIREADME.md))
+- [x] Binance REST/WebSocket API 조사 및 정리 ([binanceAPIREADME.md](docs/binance-api/binanceAPIREADME.md))
 - [x] Product별(Spot/USD-M/COIN-M/Options) Market Stream 필드 정리
 - [x] User Data Stream(계정 이벤트) 정리
-- [x] 수집 심볼 선정 ([0TickerInfoTable.md](APIdocs/0TickerInfoTable.md))
+- [x] 수집 심볼 선정 ([0TickerInfoTable.md](docs/symbols/0TickerInfoTable.md))
 - [x] 인사이트 카탈로그 작성 ([analyticsInsightsREADME.md](Insights/analyticsInsightsREADME.md))
 - [x] Ingestion Pod 구성 · HA 설계 ([ingestion/plan.md](plan/ingestion/plan.md))
 - [x] Kafka 토픽 설계 ([topic/plan.md](plan/topic/plan.md))
@@ -201,22 +205,23 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 | [servingapp/plan.md](servingapp/plan.md) | 서빙 계층: push 구조, 초기값, Gateway 스케일, 전송 빈도 제어 |
 | [datasource-ingestion/README.md](datasource-ingestion/README.md) | Ingestion 앱 폴더 구조와 POC 실행 방법 |
 
-### Binance API 조사 (`APIdocs/`)
+### 조사 문서 (`docs/`)
 
-| 문서 | 내용 |
-| --- | --- |
-| [0TickerInfoTable.md](APIdocs/0TickerInfoTable.md) | 수집 심볼 목록 (BTC, 광학·반도체 TradFi 무기한 선물) |
-| [binanceAPIREADME.md](APIdocs/binanceAPIREADME.md) | REST/WebSocket 전반, 인증, rate limit |
-| [binanceWebSocketREADME.md](APIdocs/binanceWebSocketREADME.md) | product별 도메인 분류, 커넥션 운영 규칙 |
-| [spotMarketStreamREADME.md](APIdocs/spotMarketStreamREADME.md) | Spot Market Stream 필드 |
-| [usdmFuturesMarketStreamREADME.md](APIdocs/usdmFuturesMarketStreamREADME.md) | USD-M Futures Market Stream 필드 |
-| [coinmFuturesMarketStreamREADME.md](APIdocs/coinmFuturesMarketStreamREADME.md) | COIN-M Futures Market Stream 필드 |
-| [optionsMarketStreamREADME.md](APIdocs/optionsMarketStreamREADME.md) | Options Market Stream 필드 (WebSocket 연결 미검증) |
-| [userDataStreamREADME.md](APIdocs/userDataStreamREADME.md) | 계정 이벤트(주문/잔고/포지션) 스트림 |
-| [kafkaTopicsREADME.md](APIdocs/kafkaTopicsREADME.md) | 초기 토픽 설계 초안과 조인 아이디어 (현재 토픽 설계는 [topic/plan.md](plan/topic/plan.md)) |
-| [collectorInsightsREADME.md](APIdocs/collectorInsightsREADME.md) | 시장별 스키마 차이, 토픽/키 설계 시 주의점 |
+| 폴더 | 문서 | 내용 |
+| --- | --- | --- |
+| `symbols/` | [0TickerInfoTable.md](docs/symbols/0TickerInfoTable.md) | 수집 심볼 목록 (BTC, 광학·반도체 TradFi 무기한 선물) |
+| | [cryptoSectorREADME.md](docs/symbols/cryptoSectorREADME.md) | crypto 섹터 분류와 envelope `sector` 값 기준 (BTC = `sov`) |
+| `binance-api/` | [binanceAPIREADME.md](docs/binance-api/binanceAPIREADME.md) | REST/WebSocket 전반, 인증, rate limit |
+| | [binanceWebSocketREADME.md](docs/binance-api/binanceWebSocketREADME.md) | product별 도메인 분류, 커넥션 운영 규칙 |
+| `streams/` | [spotMarketStreamREADME.md](docs/streams/spotMarketStreamREADME.md) | Spot Market Stream 필드 |
+| | [usdmFuturesMarketStreamREADME.md](docs/streams/usdmFuturesMarketStreamREADME.md) | USD-M Futures Market Stream 필드 |
+| | [coinmFuturesMarketStreamREADME.md](docs/streams/coinmFuturesMarketStreamREADME.md) | COIN-M Futures Market Stream 필드 |
+| | [optionsMarketStreamREADME.md](docs/streams/optionsMarketStreamREADME.md) | Options Market Stream 필드 (WebSocket 연결 미검증) |
+| | [userDataStreamREADME.md](docs/streams/userDataStreamREADME.md) | 계정 이벤트(주문/잔고/포지션) 스트림 |
+| `notes/` | [kafkaTopicsREADME.md](docs/notes/kafkaTopicsREADME.md) | 초기 토픽 설계 초안과 조인 아이디어 (현재 토픽 설계는 [topic/plan.md](plan/topic/plan.md)) |
+| | [collectorInsightsREADME.md](docs/notes/collectorInsightsREADME.md) | 시장별 스키마 차이, 토픽/키 설계 시 주의점 |
 
-`APIdocs/APIpoc/`에는 각 시장 WebSocket을 실제로 연결해본 검증용 Jupyter 노트북이 있다.
+[docs/streams/poc/](docs/streams/poc/)에는 각 시장 WebSocket을 실제로 연결해본 검증용 Jupyter 노트북이 있다.
 
 ## Insights
 

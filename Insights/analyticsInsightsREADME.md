@@ -2,8 +2,8 @@
 
 CDC 파이프라인 위에서 시도해볼 만한 **분석 인사이트**를 모은 문서다. 인사이트마다 (1) 무엇을 포착하려는
 건지, (2) 그걸 만들려면 **어떤 웹소켓 스트림이 필요한지**, (3) **어떻게 계산/구현하는지**를 같이 적는다.
-Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADME.md](collectorInsightsREADME.md)와
-[kafkaTopicsREADME.md](kafkaTopicsREADME.md)를 참고한다. 이 문서는 그 위에서 "왜 이 조인이 의미 있는
+Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADME.md](../docs/notes/collectorInsightsREADME.md)와
+[kafkaTopicsREADME.md](../docs/notes/kafkaTopicsREADME.md)를 참고한다. 이 문서는 그 위에서 "왜 이 조인이 의미 있는
 신호가 되는지"에 집중한다.
 
 ---
@@ -31,7 +31,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
     - `basis = markPrice - spotMidPrice`, `spotMidPrice = (bestBid + bestAsk) / 2`.
     - 베이시스와 펀딩비(`r`)를 같이 겹쳐서, 베이시스 확대 방향과 펀딩비 부호가 일치하는 구간만
       알림 대상으로 좁히면 노이즈가 줄어든다.
-    - 자세한 토픽/키 설계는 [collectorInsightsREADME.md](collectorInsightsREADME.md#7-basis베이시스-조인--spot-trade--usd-m-markprice) 참고.
+    - 자세한 토픽/키 설계는 [collectorInsightsREADME.md](../docs/notes/collectorInsightsREADME.md#7-basis베이시스-조인--spot-trade--usd-m-markprice) 참고.
   - **과매도 / 과매수 판단 기준**
     1. **통계적 임계치**
        - 최근 N개 basis 윈도우 값으로 이동평균(μ)과 표준편차(σ)를 갱신한다(예: N=20~30개
@@ -63,7 +63,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
   - **필요한 웹소켓**
     - Delivery(만기 선물)의 Current Quarter / Next Quarter 심볼 각각의 `<symbol>@bookTicker`.
       심볼은 하드코딩하지 않고 `GET /fapi/v1/exchangeInfo`의 `contractType`으로 매번 조회한다
-      ([usdmFuturesMarketStreamREADME.md §9](usdmFuturesMarketStreamREADME.md#9-delivery--만기-선물)).
+      ([usdmFuturesMarketStreamREADME.md §9](../docs/streams/usdmFuturesMarketStreamREADME.md#9-delivery--만기-선물)).
   - **방식**
     - `KTable-KTable` 조인 — 윈도우 조인이 아니라, 두 계약의 최신 호가를 각각 `KTable`로
       materialize한 뒤 값이 갱신될 때마다 `spread = nextQuarterMid - currentQuarterMid`를 재계산한다.
@@ -77,14 +77,14 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
 
   - **필요한 웹소켓**
     - 같은 행사가·만기의 Call/Put 심볼 각각의 `<symbol>@ticker` (그릭스+IV+마크 가격 포함,
-      [optionsMarketStreamREADME.md §1](optionsMarketStreamREADME.md#1-ticker--그릭스와-iv)).
+      [optionsMarketStreamREADME.md §1](../docs/streams/optionsMarketStreamREADME.md#1-ticker--그릭스와-iv)).
     - ATM(등가) 행사가는 하드코딩하지 않고 `GET /eapi/v1/exchangeInfo` → `expiryDate` 기준 정렬로
-      매번 골라야 한다([optionsMarketStreamREADME.md 심볼 조회 흐름](optionsMarketStreamREADME.md#심볼-조회-흐름)).
+      매번 골라야 한다([optionsMarketStreamREADME.md 심볼 조회 흐름](../docs/streams/optionsMarketStreamREADME.md#심볼-조회-흐름)).
   - **방식**
     - `straddlePrice = call.markPrice + put.markPrice`를 실시간으로 계산하고, 기초자산의
       역사적 변동성(realized vol, `<underlying>@index`로 수집한 가격의 rolling stddev)과 비교해
       내재변동성(`vo`)이 과대평가된 구간을 찾는다.
-    - 옵션 웹소켓은 이 환경에서 연결이 안 됐던 이력이 있으므로([optionsMarketStreamREADME.md](optionsMarketStreamREADME.md)
+    - 옵션 웹소켓은 이 환경에서 연결이 안 됐던 이력이 있으므로([optionsMarketStreamREADME.md](../docs/streams/optionsMarketStreamREADME.md)
       상단 참고 박스), 실제 배포 환경에서 연결 가능 여부부터 확인해야 한다.
 
 - **Insight 1-4. 타 거래소 간 스프레드**
@@ -107,7 +107,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
     높은 `<symbol>@depth@100ms`(100ms 오더북 diff)가 부하의 주요 원인일 가능성이 크다.
 - **방식**
   - Collector가 이미 노출하기로 되어 있는 metric들을 시계열로 수집한다
-    ([binanceAPIREADME.md](binanceAPIREADME.md#rate-limit과-장애-처리)의 `binance_event_received_total`,
+    ([binanceAPIREADME.md](../docs/binance-api/binanceAPIREADME.md#rate-limit과-장애-처리)의 `binance_event_received_total`,
     `binance_queue_size`, `binance_event_lag_ms` 등).
   - 여기에 **DB 쓰기 지연**(배치 insert latency), **Debezium WAL lag**(`cdc.public.market_events`로
     복제되기까지 걸리는 시간)을 같은 대시보드에 겹친다.
@@ -139,10 +139,10 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
 
   - **필요한 웹소켓**: `<symbol>@depth@100ms` (오더북 diff). 반드시 REST snapshot과 동기화해서
     로컬 오더북을 재구성해야 하며, 단독 스트림만으로는 안 된다
-    ([binanceAPIREADME.md 로컬 오더북](binanceAPIREADME.md#로컬-오더북)).
+    ([binanceAPIREADME.md 로컬 오더북](../docs/binance-api/binanceAPIREADME.md#로컬-오더북)).
   - **방식**
     - Kafka Streams state store에 심볼별 로컬 오더북을 유지한다(난이도 높음,
-      [kafkaTopicsREADME.md §5.6](kafkaTopicsREADME.md#56-depth오더북--trade--스푸핑아이스버그-탐지)과 동일 아이디어).
+      [kafkaTopicsREADME.md §5.6](../docs/notes/kafkaTopicsREADME.md#56-depth오더북--trade--스푸핑아이스버그-탐지)과 동일 아이디어).
     - 특정 가격대에 비정상적으로 큰 잔량("벽")이 잡혔다가, 그 가격에서 **체결 없이** 사라지면
       스푸핑 후보로 플래그한다 — 이걸 판별하려면 같은 구간의 `<symbol>@aggTrade`와 대조해서
       "취소로 사라졌는지 vs 체결로 사라졌는지"를 확인해야 한다.
@@ -158,7 +158,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
     - 누적 체결량(CVD, `README.md`의 Order Flow 분석 항목)과 함께 보면 고래 거래 이후 후속
       추세 형성 여부도 같이 검증 가능하다.
   - **필요한 보조 웹소켓**: `!forceOrder@arr` — 고래 거래가 강제 청산으로 이어지는지까지 보려면
-    청산 스트림을 같이 조인한다([collectorInsightsREADME.md §8](collectorInsightsREADME.md#8-청산-캐스케이드-조인--forceorder--trade)).
+    청산 스트림을 같이 조인한다([collectorInsightsREADME.md §8](../docs/notes/collectorInsightsREADME.md#8-청산-캐스케이드-조인--forceorder--trade)).
 
 ---
 
@@ -168,14 +168,14 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
 > 쓸 수 있는지 검증하는 인사이트.
 
 - **필요한 웹소켓**: `btcusdt@trade` + `ethusdt@trade` (같은 시장 안에서 비교해야 한다 — Spot과
-  USD-M을 섞으면 [collectorInsightsREADME.md §5](collectorInsightsREADME.md#5-binanceraw-토픽에-product-구분자가-없다--심볼-충돌-위험)의
+  USD-M을 섞으면 [collectorInsightsREADME.md §5](../docs/notes/collectorInsightsREADME.md#5-binanceraw-토픽에-product-구분자가-없다--심볼-충돌-위험)의
   키 충돌 문제가 그대로 적용된다).
 - **방식**
   - `KStream-KStream` 셀프 조인, 짧은 윈도우(수백ms~수초)로 각 심볼의 가격 변화율(return)을 계산해
     상태 저장소에 최근 N개를 버퍼링한다.
   - 여러 lag 값(0ms, 100ms, 500ms, 1s, ...)에 대해 BTC return과 ETH return의 교차상관을 계산하고,
     상관이 최대가 되는 lag를 "선행 시간"으로 추정한다.
-  - 자세한 조인 아이디어는 [kafkaTopicsREADME.md §5.5](kafkaTopicsREADME.md#55-상관-심볼-간-trade--trade--리드-래그lead-lag-탐지) 참고.
+  - 자세한 조인 아이디어는 [kafkaTopicsREADME.md §5.5](../docs/notes/kafkaTopicsREADME.md#55-상관-심볼-간-trade--trade--리드-래그lead-lag-탐지) 참고.
 
 ---
 
@@ -190,7 +190,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
   - `slippage = 내 체결가 - 체결 시점 mid_price`. `bookTicker`를 심볼별 최신 상태로 materialize한
     `KTable`과 내 체결 이벤트를 조인한다.
   - 시장 데이터(공개) + 계정 데이터(민감)를 조인하는 유일한 케이스라 결과 토픽 접근 권한을 계정
-    데이터 기준으로 제한해야 한다. 토픽·키 설계는 [collectorInsightsREADME.md §9](collectorInsightsREADME.md#9-체결-품질슬리피지-조인--내-executionreport--bookticker) 참고.
+    데이터 기준으로 제한해야 한다. 토픽·키 설계는 [collectorInsightsREADME.md §9](../docs/notes/collectorInsightsREADME.md#9-체결-품질슬리피지-조인--내-executionreport--bookticker) 참고.
 
 ---
 
@@ -205,7 +205,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
   - `portfolio_value_usdt = Σ (balance[asset] * price[asset+USDT])`. 자산→심볼 매핑 테이블이
     별도로 필요하다(`exchangeInfo`의 `baseAsset`/`quoteAsset`으로 정적 매핑 생성).
   - 평가액 변화율을 실현/미실현 손익과 분리해서 보여주면, 포지션 손실 임계치 초과 알림 같은
-    리스크 관리 기능으로도 재사용할 수 있다. 자세한 내용은 [collectorInsightsREADME.md §10](collectorInsightsREADME.md#10-포트폴리오-평가액-조인--balance--ticker) 참고.
+    리스크 관리 기능으로도 재사용할 수 있다. 자세한 내용은 [collectorInsightsREADME.md §10](../docs/notes/collectorInsightsREADME.md#10-포트폴리오-평가액-조인--balance--ticker) 참고.
 
 ---
 
@@ -238,7 +238,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
   - 두 마켓 펀딩비가 괴리될 때 어느 쪽이 먼저 반응하는지는 Insight 4(리드-래그)와 같은 기법으로
     분석할 수 있다.
   - COIN-M의 `q`(계약 수)와 USD-M의 `q`(코인 수량) 단위가 다르므로
-    ([usdmFuturesMarketStreamREADME.md](usdmFuturesMarketStreamREADME.md), [coinmFuturesMarketStreamREADME.md §3](coinmFuturesMarketStreamREADME.md#3-kline_ltintervalgt--ohlcv-캔들)),
+    ([usdmFuturesMarketStreamREADME.md](../docs/streams/usdmFuturesMarketStreamREADME.md), [coinmFuturesMarketStreamREADME.md §3](../docs/streams/coinmFuturesMarketStreamREADME.md#3-kline_ltintervalgt--ohlcv-캔들)),
     이 조인은 가격/펀딩비만 비교하고 수량은 섞지 않는다.
 
 ---
@@ -255,7 +255,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
     `openInterest`/`vo`(IV)를 `KTable`로 유지한다.
   - `PCR = Put 전체 openInterest / Call 전체 openInterest`.
   - `skew = OTM put의 IV - OTM call의 IV`. 시간에 따른 PCR·스큐 추세를 만기별로 비교한다.
-  - Options 웹소켓 연결 자체가 이 환경에서 검증되지 않았으므로([optionsMarketStreamREADME.md](optionsMarketStreamREADME.md)
+  - Options 웹소켓 연결 자체가 이 환경에서 검증되지 않았으므로([optionsMarketStreamREADME.md](../docs/streams/optionsMarketStreamREADME.md)
     상단 참고 박스), REST `GET /eapi/v1/ticker` 폴링으로 먼저 프로토타입해볼 수 있다.
 
 ---
@@ -295,6 +295,6 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
 
 ## 참고 문서
 
-- [collectorInsightsREADME.md](collectorInsightsREADME.md) — 웹소켓 스키마 차이, Kafka 토픽·키 설계 인사이트
-- [kafkaTopicsREADME.md](kafkaTopicsREADME.md) — 토픽 설계와 조인 원본 아이디어
+- [collectorInsightsREADME.md](../docs/notes/collectorInsightsREADME.md) — 웹소켓 스키마 차이, Kafka 토픽·키 설계 인사이트
+- [kafkaTopicsREADME.md](../docs/notes/kafkaTopicsREADME.md) — 토픽 설계와 조인 원본 아이디어
 - [../README.md](../README.md) — 프로젝트 전체 구조, 분석 기능 아이디어(MVP/Order Flow)
