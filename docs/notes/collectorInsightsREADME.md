@@ -2,7 +2,7 @@
 
 spot/usdm/coinm/options 4개 시장 문서([binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md))를 필드 단위로
 전부 정리하면서 나온 인사이트를 모았다. 인사이트별로 **어떤 웹소켓 스트림을 쓸지**, **어떤 Kafka 토픽·키로
-발행/조인할지**를 같이 적는다. 토픽 기본 설계는 [kafkaTopicsREADME.md](kafkaTopicsREADME.md)를 따르고,
+발행/조인할지**를 같이 적는다. 토픽 기본 설계는 [kafkaTopicsREADME.md](../kafka/kafkaTopicsREADME.md)를 따르고,
 이 문서는 거기서 빠져 있거나 수정이 필요한 부분 위주로 다룬다.
 
 ---
@@ -76,7 +76,7 @@ TradFi Perpetual(NVDAUSDT 등)은 페이로드 구조가 Crypto Perpetual과 완
 
 ## 5. `binance.raw.*` 토픽에 product 구분자가 없다 — 심볼 충돌 위험
 
-[kafkaTopicsREADME.md](kafkaTopicsREADME.md#2-토픽별-상세)의 현재 설계는 파티션 키가 **순수
+[kafkaTopicsREADME.md](../kafka/kafkaTopicsREADME.md#2-토픽별-상세)의 현재 설계는 파티션 키가 **순수
 `symbol`**이다. 그런데 `BTCUSDT`는 Spot에도, USD-M Crypto Perpetual에도 동시에 존재한다. 같은
 `binance.raw.trade` 토픽에 둘 다 같은 키로 들어가면:
 
@@ -108,7 +108,7 @@ TradFi Perpetual(NVDAUSDT 등)은 페이로드 구조가 Crypto Perpetual과 완
 `<underlyingAsset>@openInterest@<expiration>` — 연결 가능 여부를 배포 환경에서 먼저 확인한다.
 
 **Kafka**: 웹소켓이 막히는 환경을 가정해 REST 폴링 기반 대체 경로를 설계해둔다(`GET /eapi/v1/ticker`
-주기 폴링 → 같은 `binance.raw.*` 토픽에 발행). **현재 [kafkaTopicsREADME.md](kafkaTopicsREADME.md)에는
+주기 폴링 → 같은 `binance.raw.*` 토픽에 발행). **현재 [kafkaTopicsREADME.md](../kafka/kafkaTopicsREADME.md)에는
 Options용 토픽이 아예 없다** — `binance.raw.option_ticker`(key: `symbol`), `binance.raw.option_oi`
 (key: `underlyingAsset:expiration`) 같은 신규 토픽 추가가 필요하다.
 
@@ -211,5 +211,5 @@ binance.raw.bookticker/ticker → KTable<symbol, lastPrice>
 ## 참고 문서
 
 - [binanceWebSocketREADME.md](../binance-api/binanceWebSocketREADME.md) — 시장별 도메인·운영 규칙
-- [kafkaTopicsREADME.md](kafkaTopicsREADME.md) — 토픽 기본 설계와 조인 아이디어 원본
+- [kafkaTopicsREADME.md](../kafka/kafkaTopicsREADME.md) — 토픽 기본 설계와 조인 아이디어 원본
 - [spotMarketStreamREADME.md](../streams/spotMarketStreamREADME.md) · [usdmFuturesMarketStreamREADME.md](../streams/usdmFuturesMarketStreamREADME.md) · [coinmFuturesMarketStreamREADME.md](../streams/coinmFuturesMarketStreamREADME.md) · [optionsMarketStreamREADME.md](../streams/optionsMarketStreamREADME.md)

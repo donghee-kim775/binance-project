@@ -310,6 +310,6 @@ erDiagram
     ```text
     브로커당 필요 디스크 = 초당 유입량 × 보존 시간 × RF ÷ 브로커 수
     ```
-- **`retention.bytes` 재설정:** 현재 [kafka-cluster.yaml](../../Infra/Kafka/Kafka-Cluster/kafka-cluster.yaml)의 `log.retention.bytes`(50GB)는 **파티션당** 한도인데, 브로커 디스크는 5Gi다. 시간 기준 삭제 전에 디스크가 먼저 찰 수 있으므로 토픽별로 디스크에 맞춰 줄인다.
+- **토픽별 `retention.bytes` 배분:** 브로커 기본값은 디스크 5Gi에 맞춰 파티션당 32MiB(`log.segment.bytes` 16MiB)로 줄였다 ([settings.md](../../docs/kafka/settings.md) 4.1). 유입량을 잰 뒤 많이 쓰는 토픽에 크게 나눠 준다.
 - **README 토픽 표 정리:** 루트 [README.md](../../README.md)의 토픽 표(`binance.raw.trade` 등)는 Spot과 USD-M을 섞는 구조라 이 문서와 다르다.
 - **KafkaTopic yaml 작성:** [Infra/Kafka/Kafka-Topic/](../../Infra/Kafka/Kafka-Topic/)에 위 토픽을 Strimzi `KafkaTopic`(`kafka.strimzi.io/v1`)으로 만든다. 기존 `btcusdt-topic.yaml`은 이 규칙으로 대체한다.

@@ -109,7 +109,7 @@ Futures Stream : wss://fstream.binancefuture.com
 시장 수집 / 계정 수집 / 주문 실행을 **프로세스와 키 권한 수준에서 분리**하면
 장애와 키 유출의 영향 범위가 크게 줄어든다.
 
-Kafka 토픽 설계와 스트림 조인(join) 아이디어는 [kafkaTopicsREADME.md](../notes/kafkaTopicsREADME.md) 참고.
+Kafka 토픽 설계와 스트림 조인(join) 아이디어는 [kafkaTopicsREADME.md](../kafka/kafkaTopicsREADME.md) 참고.
 PoC 코드는 [streams/poc/](../streams/poc/) 디렉터리에 시장별 노트북(`spot_market_stream.ipynb` 등)으로 있다.
 
 ---

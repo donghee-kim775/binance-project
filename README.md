@@ -142,7 +142,7 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 - [x] Kafka UI (NodePort 30080, [kafka-ui.yaml](Infra/Kafka/Kafka-Cluster/kafka-ui.yaml))
 - [x] 토픽 이름 규칙 · 키 · 파티션 · 보존 정책 확정
 - [ ] 토픽별 Strimzi `KafkaTopic` yaml 작성 (`Infra/Kafka/Kafka-Topic/binance/{raw,clean,analytics}/`)
-- [ ] `retention.bytes`를 브로커 디스크(5Gi)에 맞게 재설정
+- [x] `retention.bytes`를 브로커 디스크(5Gi)에 맞게 재설정 (파티션당 32MiB, 세그먼트 16MiB, [settings.md](docs/kafka/settings.md))
 - [ ] cert-manager + Flink Kubernetes Operator 설치
 - [ ] Schema Registry 도입 여부 결정 (Avro/Protobuf vs JSON)
 - [ ] 가격/수량 필드 decimal 타입 처리 정책 확정
@@ -219,8 +219,10 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 | | [coinmFuturesMarketStreamREADME.md](docs/streams/coinmFuturesMarketStreamREADME.md) | COIN-M Futures Market Stream 필드 |
 | | [optionsMarketStreamREADME.md](docs/streams/optionsMarketStreamREADME.md) | Options Market Stream 필드 (WebSocket 연결 미검증) |
 | | [userDataStreamREADME.md](docs/streams/userDataStreamREADME.md) | 계정 이벤트(주문/잔고/포지션) 스트림 |
-| `notes/` | [kafkaTopicsREADME.md](docs/notes/kafkaTopicsREADME.md) | 초기 토픽 설계 초안과 조인 아이디어 (현재 토픽 설계는 [topic/plan.md](plan/topic/plan.md)) |
-| | [collectorInsightsREADME.md](docs/notes/collectorInsightsREADME.md) | 시장별 스키마 차이, 토픽/키 설계 시 주의점 |
+| `kafka/` | [topics.md](docs/kafka/topics.md) | 전체 토픽 목록 (raw · clean · analytics · 내부 토픽), 파티션, 보존 |
+| | [settings.md](docs/kafka/settings.md) | 현재 클러스터 구성과 설정 이유, 우려 지점 (디스크, 단일 PC, 수집 구간 유실 등) |
+| | [kafkaTopicsREADME.md](docs/kafka/kafkaTopicsREADME.md) | 초기 토픽 설계 초안과 조인 아이디어 (현재 토픽 설계는 [topic/plan.md](plan/topic/plan.md)) |
+| `notes/` | [collectorInsightsREADME.md](docs/notes/collectorInsightsREADME.md) | 시장별 스키마 차이, 토픽/키 설계 시 주의점 |
 | `spring/` | [configuration.md](docs/spring/configuration.md) | 설정 출처와 탐색 순서, 프로파일(local/release), 환경변수 이름 규칙, 코드에서 값 받는 법 |
 
 [docs/streams/poc/](docs/streams/poc/)에는 각 시장 WebSocket을 실제로 연결해본 검증용 Jupyter 노트북이 있다.

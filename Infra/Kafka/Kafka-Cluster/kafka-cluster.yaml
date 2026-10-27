@@ -17,7 +17,7 @@ spec:
   # 각 브로커 Pod이 사용할 영구 볼륨(Persistent Volume) 설정
   storage:
     type: persistent-claim
-    size: 5Gi          # 브로커 당 50GB 디스크 할당
+    size: 5Gi          # 브로커 당 5Gi 디스크 할당 (kind 로컬 디스크 기준)
     deleteClaim: false # 클러스터 삭제 시 PVC(볼륨) 자동 삭제 방지 (데이터 보호)
 ---
 apiVersion: kafka.strimzi.io/v1
@@ -61,8 +61,13 @@ spec:
       # 데이터 보존 정책: 시간 기준 (168시간 = 7일 지난 로그 자동 삭제)
       log.retention.hours: 168
       
-      # 데이터 보존 정책: 용량 기준 (파티션/로그당 50GB 초과 시 오래된 데이터부터 삭제)
-      log.retention.bytes: 53687091200
+      # 데이터 보존 정책: 용량 기준 (파티션당 32MiB 초과 시 오래된 세그먼트부터 삭제)
+      # 브로커 디스크 5Gi 기준: RF 3 · 브로커 3대라 브로커마다 모든 파티션(raw 45 + clean 36 + analytics 3 = 84개)의 복제본을 가진다
+      # 파티션 하나의 최대 크기 ≈ retention.bytes + segment.bytes(활성 세그먼트는 지우지 않음) = 48MiB → 84 × 48MiB ≈ 3.9GiB (디스크의 약 80%)
+      log.retention.bytes: 33554432
+
+      # 세그먼트 크기 (16MiB). 기본값 1GiB면 retention.bytes보다 커서 용량 기준 삭제가 동작하지 않는다
+      log.segment.bytes: 16777216
 
   # Kafka 생태계를 관리하는 오퍼레이터(토픽 및 사용자 자동 관리 도구)
   entityOperator:

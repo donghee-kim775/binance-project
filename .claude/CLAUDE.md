@@ -9,7 +9,7 @@ Binance WebSocket 시장 데이터를 Kafka로 수집하고 Flink로 분석하�
 - 분석(dedup, basis join 등)은 **별도 Flink 앱**에서 한다. 수집 앱에 넣지 않는다.
 - `plan/`: 설계 결정 기록 (`ingestion/`, `topic/`, `consumer/`)
 - `Infra/`: kind 클러스터, Strimzi Kafka, Flink Operator
-- `docs/`: Binance API 조사 (`binance-api/`, `streams/`), 수집 심볼 표와 섹터 분류 (`symbols/0TickerInfoTable.md`, `symbols/cryptoSectorREADME.md`), 초기 메모 (`notes/`), Spring Boot 동작 정리 (`spring/`)
+- `docs/`: Binance API 조사 (`binance-api/`, `streams/`), 수집 심볼 표와 섹터 분류 (`symbols/0TickerInfoTable.md`, `symbols/cryptoSectorREADME.md`), Kafka 토픽 목록과 설정 이유 (`kafka/`), 초기 메모 (`notes/`), Spring Boot 동작 정리 (`spring/`)
 - `Insights/`: 인사이트 카탈로그와 인사이트별 계획
 - `servingapp/`: 서빙 계층 설계
 
@@ -23,7 +23,7 @@ Binance WebSocket 시장 데이터를 Kafka로 수집하고 Flink로 분석하�
   - variable-rate (bookTicker, trade/aggTrade, depth): Active-Active, replicas 2, RollingUpdate `maxUnavailable: 0`
   - fixed-rate (markPrice@1s): Active-Standby, replicas 1, `Recreate`
 - **네임스페이스:** 수집 앱 `binance-ingestion`, Kafka `kafka`
-- 수집 심볼이나 스트림이 바뀌면 `0TickerInfoTable.md`, `deploy/`, `plan/topic/plan.md`, README 수집 대상 표를 함께 맞춘다 (`/add-symbol`).
+- 수집 심볼이나 스트림이 바뀌면 `0TickerInfoTable.md`, `deploy/`, `plan/topic/plan.md`, `docs/kafka/topics.md`, README 수집 대상 표를 함께 맞춘다 (`/add-symbol`).
 
 ## 문서 작성 규칙
 
