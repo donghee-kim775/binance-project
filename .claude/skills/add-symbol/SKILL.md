@@ -28,6 +28,7 @@ argument-hint: "<심볼 또는 섹터> [product] [asset-class] [sector]"
 | `datasource-ingestion/deploy/kustomization.yaml` | 새 파일을 만들었으면 `resources`에 추가 |
 | `plan/ingestion/plan.md` | 수집 대상 표, 구성도, pod 목록, 구독 URL, 소켓 수 합계 |
 | `plan/topic/plan.md` | 파티션 수 (stock 토픽은 심볼 수에 맞춤), ERD의 symbols |
+| `docs/kafka/topics.md` | 토픽 표의 쓰는 pod, 파티션 수 |
 | `README.md` | "수집 대상" 표, Deployment·Pod·연결 수 |
 
 ## 3. 규칙

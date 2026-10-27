@@ -3,7 +3,7 @@
 CDC 파이프라인 위에서 시도해볼 만한 **분석 인사이트**를 모은 문서다. 인사이트마다 (1) 무엇을 포착하려는
 건지, (2) 그걸 만들려면 **어떤 웹소켓 스트림이 필요한지**, (3) **어떻게 계산/구현하는지**를 같이 적는다.
 Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADME.md](../docs/notes/collectorInsightsREADME.md)와
-[kafkaTopicsREADME.md](../docs/notes/kafkaTopicsREADME.md)를 참고한다. 이 문서는 그 위에서 "왜 이 조인이 의미 있는
+[kafkaTopicsREADME.md](../docs/kafka/kafkaTopicsREADME.md)를 참고한다. 이 문서는 그 위에서 "왜 이 조인이 의미 있는
 신호가 되는지"에 집중한다.
 
 ---
@@ -142,7 +142,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
     ([binanceAPIREADME.md 로컬 오더북](../docs/binance-api/binanceAPIREADME.md#로컬-오더북)).
   - **방식**
     - Kafka Streams state store에 심볼별 로컬 오더북을 유지한다(난이도 높음,
-      [kafkaTopicsREADME.md §5.6](../docs/notes/kafkaTopicsREADME.md#56-depth오더북--trade--스푸핑아이스버그-탐지)과 동일 아이디어).
+      [kafkaTopicsREADME.md §5.6](../docs/kafka/kafkaTopicsREADME.md#56-depth오더북--trade--스푸핑아이스버그-탐지)과 동일 아이디어).
     - 특정 가격대에 비정상적으로 큰 잔량("벽")이 잡혔다가, 그 가격에서 **체결 없이** 사라지면
       스푸핑 후보로 플래그한다 — 이걸 판별하려면 같은 구간의 `<symbol>@aggTrade`와 대조해서
       "취소로 사라졌는지 vs 체결로 사라졌는지"를 확인해야 한다.
@@ -175,7 +175,7 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
     상태 저장소에 최근 N개를 버퍼링한다.
   - 여러 lag 값(0ms, 100ms, 500ms, 1s, ...)에 대해 BTC return과 ETH return의 교차상관을 계산하고,
     상관이 최대가 되는 lag를 "선행 시간"으로 추정한다.
-  - 자세한 조인 아이디어는 [kafkaTopicsREADME.md §5.5](../docs/notes/kafkaTopicsREADME.md#55-상관-심볼-간-trade--trade--리드-래그lead-lag-탐지) 참고.
+  - 자세한 조인 아이디어는 [kafkaTopicsREADME.md §5.5](../docs/kafka/kafkaTopicsREADME.md#55-상관-심볼-간-trade--trade--리드-래그lead-lag-탐지) 참고.
 
 ---
 
@@ -296,5 +296,5 @@ Kafka 토픽·조인 관점의 기술적 세부사항은 [collectorInsightsREADM
 ## 참고 문서
 
 - [collectorInsightsREADME.md](../docs/notes/collectorInsightsREADME.md) — 웹소켓 스키마 차이, Kafka 토픽·키 설계 인사이트
-- [kafkaTopicsREADME.md](../docs/notes/kafkaTopicsREADME.md) — 토픽 설계와 조인 원본 아이디어
+- [kafkaTopicsREADME.md](../docs/kafka/kafkaTopicsREADME.md) — 토픽 설계와 조인 원본 아이디어
 - [../README.md](../README.md) — 프로젝트 전체 구조, 분석 기능 아이디어(MVP/Order Flow)

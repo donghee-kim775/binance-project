@@ -56,6 +56,10 @@ public class MarketDataIngestService {
 
             log.info("[{}] {} {} event_time={}",
                     subscription.group(), envelope.stream(), envelope.symbol(), envelope.eventTime());
+            // envelope 전체 — 평소(INFO)에는 안 찍힌다. 확인할 때만 LOGGING_LEVEL_COM_INGESTION=DEBUG
+            if (log.isDebugEnabled()) {
+                log.debug("envelope={}", objectMapper.writeValueAsString(envelope));
+            }
             eventPublisher.publish(spec.topic(), envelope);
         } catch (Exception e) {
             log.error("failed to handle {} message: {}", spec.stream(), raw, e);
