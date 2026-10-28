@@ -4,7 +4,7 @@
 
 > **이 앱의 책임:** Binance에서 받은 raw 메시지를 envelope로 감싸 토픽에 보내는 것까지만 한다. payload는 해석하지 않고, 중복 제거(Active-Active)와 조인은 다운스트림 Flink 앱이 한다. 그래서 스트림별 모델 클래스가 없고, `group`도 동작에 영향을 주지 않는다.
 >
-> **Kafka 발행:** 아직 `spring-kafka` 의존성이 꺼져 있어서 `RawEventPublisher`는 토픽과 키를 로그로만 남긴다 (`[KAFKA:SKIPPED]`).
+> **Kafka 발행:** `BinanceRawEventPublisher`가 Spring Boot가 자동으로 만든 `KafkaTemplate`으로 발행한다. producer 설정은 `application.yml`의 `spring.kafka.producer.*`에 있다.
 
 코드 경로는 모두 `collector/src/main/java/com/ingestion/` 기준이다.
 
@@ -30,7 +30,7 @@
                │
                ├─ @SpringBootApplication                                       :7
                │    ├─ @ComponentScan            @Component · @Configuration 클래스 찾기
-               │    │    → CollectorRunner, MarketDataIngestService, RawEventPublisher, AsyncConfig
+               │    │    → CollectorRunner, MarketDataIngestService, BinanceRawEventPublisher, AsyncConfig
                │    └─ @EnableAutoConfiguration  의존성(classpath)을 보고 기본 Bean 추가
                │         → ObjectMapper (spring-boot-starter-json)
                │
@@ -47,7 +47,7 @@
                ▼
           ⑦ MarketDataIngestService.onRaw() service/MarketDataIngestService:52 [스레드풀] unwrap → envelope
                ▼
-          ⑧ RawEventPublisher.publish()     kafka/RawEventPublisher:25         토픽 · 키로 발행 (지금은 로그만)
+          ⑧ BinanceRawEventPublisher.publish()     kafka/BinanceRawEventPublisher:25         토픽 · 키로 발행 (지금은 로그만)
 ```
 
 | 단계 | 하는 일 | 파일 | 쓰이는 설정 필드 |
@@ -58,8 +58,8 @@
 | ④ | Bean 생성 · 주입 | `runner/CollectorRunner.java`, `service/MarketDataIngestService.java`, `config/AsyncConfig.java` | — |
 | ⑤ | 소켓 생성 | `runner/CollectorRunner.java` | `product`, `sector`, `symbols`, `streams[].stream · route-prefix` |
 | ⑥ | 메시지 수신 | `collector/BinanceStreamClient.java` | — |
-| ⑦ | envelope 생성 | `service/MarketDataIngestService.java`, `model/EventEnvelope.java` | `group`, `product`, `asset-class`, `sector`, `streams[].stream` |
-| ⑧ | 발행 | `kafka/RawEventPublisher.java` | `streams[].topic` |
+| ⑦ | envelope 생성 | `service/MarketDataIngestService.java`, `model/BinanceEventEnvelope.java` | `group`, `product`, `asset-class`, `sector`, `streams[].stream` |
+| ⑧ | 발행 | `kafka/BinanceRawEventPublisher.java` | `streams[].topic` |
 
 로컬 실행(`./gradlew bootRun`)은 ①이 없고, `application.yml`의 `binance.subscription` 기본값(`spot-sov` pod와 같음)으로 ②부터 시작한다.
 
@@ -119,7 +119,7 @@ Spring Boot가 시작되면서 **Environment**(모든 설정값을 모아 둔 �
 
 주소를 바꾸려면 환경변수 `SPRING_KAFKA_BOOTSTRAP_SERVERS`를 준다 (로컬: 셸에서 지정, K8s: `common.yaml`에 추가). `spring.kafka.bootstrap-servers`는 Spring 표준 키라, relaxed binding으로 이 환경변수가 자동으로 같은 키가 되고 yml보다 우선한다.
 
-이 값은 [`config/KafkaConfig.java`](../collector/src/main/java/com/ingestion/config/KafkaConfig.java)가 `Environment.getProperty("spring.kafka.bootstrap-servers", "")`로 읽어 시작할 때 `[kafka] bootstrap-servers=...` 로그로 남긴다. `spring-kafka`를 켜면 Spring Boot가 같은 키로 `KafkaTemplate`을 만든다.
+이 값은 [`config/KafkaConfig.java`](../collector/src/main/java/com/ingestion/config/KafkaConfig.java)가 `Environment.getProperty("spring.kafka.bootstrap-servers", "")`로 읽어 시작할 때 `[kafka] bootstrap-servers=...` 로그로 남긴다. Spring Boot는 같은 키로 `KafkaTemplate`을 만든다 (`spring-boot-starter-kafka`).
 
 **`SPRING_CONFIG_ADDITIONAL_LOCATION`을 Spring이 읽는 이유** ([`deploy/Dockerfile:37`](Dockerfile#L37))
 
@@ -158,7 +158,7 @@ public class IngestionCollectorApplication { ... }
 
 | 포함된 어노테이션 | 하는 일 | 이 앱에서 등록되는 것 |
 | --- | --- | --- |
-| `@ComponentScan` | `@Component`, `@Configuration` 등이 붙은 클래스를 찾는다 | `CollectorRunner`, `MarketDataIngestService`, `RawEventPublisher`, `AsyncConfig`(→ `ingestExecutor`) |
+| `@ComponentScan` | `@Component`, `@Configuration` 등이 붙은 클래스를 찾는다 | `CollectorRunner`, `MarketDataIngestService`, `BinanceRawEventPublisher`, `AsyncConfig`(→ `ingestExecutor`) |
 | `@EnableAutoConfiguration` | classpath의 의존성을 보고 Spring Boot가 기본 Bean을 추가한다 | `ObjectMapper` (`spring-boot-starter-json`) |
 | `@Configuration` | 이 클래스 자체를 설정 클래스로 만든다 | — |
 
@@ -221,7 +221,7 @@ Spring이 나머지 Bean을 만들면서 ③의 설정 객체를 생성자로 �
 | Bean | 받는 것 | 위치 |
 | --- | --- | --- |
 | `CollectorRunner` | `MarketDataIngestService`, `BinanceProperties.Endpoint`, `BinanceProperties.Subscription` | [`runner/CollectorRunner.java:47`](../collector/src/main/java/com/ingestion/runner/CollectorRunner.java#L47) |
-| `MarketDataIngestService` | `RawEventPublisher`, `ObjectMapper`, `BinanceProperties.Subscription`, `collectorId` | [`service/MarketDataIngestService.java:39`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L39) |
+| `MarketDataIngestService` | `BinanceRawEventPublisher`, `ObjectMapper`, `BinanceProperties.Subscription`, `collectorId` | [`service/MarketDataIngestService.java:39`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L39) |
 | `ingestExecutor` 스레드풀 | 코어 2개, 최대 4개 | [`config/AsyncConfig.java:19`](../collector/src/main/java/com/ingestion/config/AsyncConfig.java#L19) |
 
 `collectorId`는 `@Value("${COLLECTOR_ID:${HOSTNAME:local}}")`로 받는다. Deployment가 `COLLECTOR_ID`에 pod 이름을 넣고, 없으면 `HOSTNAME`, 로컬 실행이면 `local`이 된다.
@@ -290,16 +290,16 @@ Binance 스트림 이름은 소문자 심볼을 쓰므로 `streamSuffix()`에서
 
 ## ⑦ envelope 생성 — `MarketDataIngestService.onRaw()`
 
-[`service/MarketDataIngestService.java:51-52`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L51-L52)
+[`service/MarketDataIngestService.java:54-55`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L54-L55)
 
 `@Async("ingestExecutor")`가 붙어 있어서, ⑥에서 호출하면 바로 반환되고 실제 처리는 **스레드풀**에서 이어진다.
 
 | 줄 | 하는 일 |
 | --- | --- |
-| [54](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L54) | JSON 파싱 후 [`unwrap()`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L68)으로 combined 메시지의 `data` 꺼내기 (`{"stream": ..., "data": {...}}`) |
-| [55](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L55) | [`toEnvelope()`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L74)로 `EventEnvelope` 생성 |
-| [57~58](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L57-L58) | 수신 로그. 첫 칸에 `group` (`[fixed-rate] markPrice LITEUSDT event_time=...`) |
-| [59](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L59) | `eventPublisher.publish(spec.topic(), envelope)` |
+| [57](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L57) | JSON 파싱 후 [`unwrap()`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L75)으로 combined 메시지의 `data` 꺼내기 (`{"stream": ..., "data": {...}}`) |
+| [58](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L58) | [`toEnvelope()`](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L81)로 `BinanceEventEnvelope` 생성 |
+| [60~61](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L60-L61) | 수신 로그. 첫 칸에 `group` (`[fixed-rate] markPrice LITEUSDT event_time=...`) |
+| [66](../collector/src/main/java/com/ingestion/service/MarketDataIngestService.java#L66) | `binanceRawEventPublisher.publish(spec.topic(), envelope)` |
 
 payload는 해석하지 않는다. 모든 스트림에 공통인 `s`(심볼)와 `E`(이벤트 시각)만 읽으므로, 스트림 종류가 늘어도 이 코드는 바뀌지 않는다.
 
@@ -341,16 +341,16 @@ payload는 해석하지 않는다. 모든 스트림에 공통인 `s`(심볼)와 
 
 ---
 
-## ⑧ 발행 — `RawEventPublisher.publish()`
+## ⑧ 발행 — `BinanceRawEventPublisher.publish()`
 
-[`kafka/RawEventPublisher.java:25`](../collector/src/main/java/com/ingestion/kafka/RawEventPublisher.java#L25)
+[`kafka/BinanceRawEventPublisher.java:40`](../collector/src/main/java/com/ingestion/kafka/BinanceRawEventPublisher.java#L40)
 
 | 항목 | 출처 |
 | --- | --- |
 | 토픽 | 설정 `streams[].topic` |
 | 키 | envelope의 `symbol` (메시지 `data.s`). 섹터 소켓 하나로 여러 심볼이 섞여 오므로 설정이 아니라 메시지에서 정한다 |
 
-지금은 [26줄](../collector/src/main/java/com/ingestion/kafka/RawEventPublisher.java#L26)에서 `[KAFKA:SKIPPED] topic=… key=…` 로그만 남긴다. 키를 심볼로 두는 이유는 같은 심볼의 이벤트가 같은 파티션에 순서대로 쌓여야 다운스트림 Flink의 dedup · 조인이 파티션 안에서 끝나기 때문이다.
+[41~43줄](../collector/src/main/java/com/ingestion/kafka/BinanceRawEventPublisher.java#L41-L43)에서 envelope를 JSON 문자열로 바꿔 `kafkaTemplate.send(토픽, 심볼, JSON)`으로 보낸다. 전송은 비동기라 브로커 응답은 `whenComplete` 콜백에서 받고, 실패하면 `[kafka] send failed`를 ERROR로 남긴다. 키를 심볼로 두는 이유는 같은 심볼의 이벤트가 같은 파티션에 순서대로 쌓여야 다운스트림 Flink의 dedup · 조인이 파티션 안에서 끝나기 때문이다.
 
 ---
 
@@ -391,6 +391,5 @@ socket 3  wss://stream.binance.com:9443/ws/btcusdt@depth@100ms  → binance.raw.
 
 | # | 할 일 | 단계 | 파일 |
 | --- | --- | --- | --- |
-| 1 | `spring-kafka` 의존성을 켜고 `KafkaTemplate`으로 실제 발행 | ⑧ | `build.gradle`, `kafka/RawEventPublisher.java` |
-| 2 | `@Async` 스레드풀(2~4개)이 같은 심볼의 메시지 순서를 섞을 수 있음. 콜백 스레드에서 바로 발행하거나 소켓별 단일 스레드로 변경 | ⑥ → ⑦ | `service/MarketDataIngestService.java`, `config/AsyncConfig.java` |
-| 3 | `route-prefix`, `topic`은 Binance 규칙과 토픽 이름 규칙에서 정해지는 값 → ConfigMap에서 빼고 코드가 계산하도록 단순화 검토 | ⑤, ⑧ | `deploy/<group>/*.yaml` |
+| 1 | `@Async` 스레드풀(2~4개)이 같은 심볼의 메시지 순서를 섞을 수 있음. 콜백 스레드에서 바로 발행하거나 소켓별 단일 스레드로 변경 | ⑥ → ⑦ | `service/MarketDataIngestService.java`, `config/AsyncConfig.java` |
+| 2 | `route-prefix`, `topic`은 Binance 규칙과 토픽 이름 규칙에서 정해지는 값 → ConfigMap에서 빼고 코드가 계산하도록 단순화 검토 | ⑤, ⑧ | `deploy/<group>/*.yaml` |

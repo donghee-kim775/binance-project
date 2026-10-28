@@ -129,7 +129,7 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 - [x] envelope(`source`, `product`, `asset_class`, `sector`, `stream`, `symbol`, `event_time`,
       `receive_time`, `collector_id`, `payload`) 생성. payload는 원본 그대로
 - [x] 공용 이미지와 variable-rate / fixed-rate 매니페스트 ([deploy/](datasource-ingestion/deploy/))
-- [ ] Kafka Producer 연동 (`spring-kafka`, `KafkaTemplate`). 지금은 토픽 · 키를 로그로만 남김
+- [x] Kafka Producer 연동 (`spring-boot-starter-kafka`, `KafkaTemplate`, `acks=all` · idempotence · zstd)
 - [ ] 같은 심볼의 메시지 순서 보장 (`@Async` 스레드풀이 순서를 섞을 수 있음)
 - [ ] WebSocket 클라이언트 고도화 (exponential backoff, 24시간 커넥션 만료 전 make-before-break)
 - [ ] kind 클러스터 배포 검증 (Active-Active 노드 분산, 페일오버)

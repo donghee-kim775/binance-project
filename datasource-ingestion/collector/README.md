@@ -12,7 +12,7 @@ Spot mid price와 mark price를 조합하는 basis 계산 같은 일은 이 앱�
 - `binance.subscription.streams` 항목 하나마다 WebSocket 소켓을 하나씩 연다.
 - 심볼이 1개면 단일 스트림(`/ws/...`), 여러 개면 combined 스트림(`/stream?streams=...`)으로 붙는다.
 - 수신한 메시지에서 모든 스트림에 공통인 심볼(`s`)과 이벤트 시각(`E`)만 꺼내 envelope를 만든다.
-- Kafka는 아직 붙이지 않았다. `kafka/RawEventPublisher`가 어떤 토픽/키로 보낼지 로그로만 찍고,
+- Kafka는 아직 붙이지 않았다. `kafka/BinanceRawEventPublisher`가 어떤 토픽/키로 보낼지 로그로만 찍고,
   실제 `KafkaTemplate.send()` 호출은 아직 없다.
 
 설정 값이 코드 어디로 들어가는지는 [deploy/mapping.md](../deploy/mapping.md)에 정리돼 있다.
@@ -35,9 +35,9 @@ collector/
     ├── service/
     │   └── MarketDataIngestService.java     # combined 메시지 풀기 → envelope 생성 → 발행 위임
     ├── model/
-    │   └── EventEnvelope.java               # 공통 envelope (payload는 원본 그대로)
+    │   └── BinanceEventEnvelope.java               # 공통 envelope (payload는 원본 그대로)
     └── kafka/
-        └── RawEventPublisher.java           # raw 이벤트 발행 지점 (지금은 로그만)
+        └── BinanceRawEventPublisher.java           # raw 이벤트 발행 지점 (지금은 로그만)
 ```
 
 패키지 하나 = 역할 하나로 나뉜다: `config`(설정) → `runner`(오케스트레이션) → `collector`(전송)
@@ -94,11 +94,12 @@ Windows에서는 `gradlew.bat bootRun`을 쓴다.
 ```
 [spot-sov-bookTicker] connecting to wss://stream.binance.com:9443/ws/btcusdt@bookTicker   # 소켓 연결
 [spot-sov-bookTicker] connected
-[variable-rate] bookTicker BTCUSDT event_time=null                                            # 메시지 수신
-[KAFKA:SKIPPED] topic=binance.raw.spot.crypto.bookticker key=BTCUSDT                          # 발행 (지금은 로그만)
+[variable-rate] bookTicker BTCUSDT event_time=null                                            # 메시지 수신 → Kafka 발행
 [variable-rate] trade BTCUSDT event_time=1792724161600
-[KAFKA:SKIPPED] topic=binance.raw.spot.crypto.trade key=BTCUSDT
 ```
+
+- 메시지마다 Kafka로 발행한다. 발행 결과(파티션, 오프셋)는 `LOGGING_LEVEL_COM_INGESTION=DEBUG`일 때 `[kafka] sent ...`로 찍히고, 실패하면 `[kafka] send failed`가 ERROR로 찍힌다.
+- **로컬 실행은 Kafka가 필요하다.** `local` 프로파일은 `localhost:9092`에 붙는데, kind의 Kafka는 클러스터 내부 리스너뿐이라 port-forward만으로는 붙지 않는다 ([docs/kafka/settings.md](../../docs/kafka/settings.md) 4.4). Kafka 없이 띄우면 발행이 메타데이터 대기(`max.block.ms`, 60초)에 걸려 `send failed`가 계속 찍힌다. 실제 발행 확인은 kind에 pod로 띄워서 한다.
 
 - Spot bookTicker는 원본에 이벤트 시각(`E`)이 없어서 `event_time=null`로 찍힌다 (정상).
 - 섹터 설정(심볼 여러 개)으로 띄우면 소켓 하나에서 여러 심볼이 섞여 오고, 키도 심볼별로 나뉜다

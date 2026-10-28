@@ -100,7 +100,7 @@ Flink dedup job이 raw를 읽어 중복을 지우고 쓴다. 파티션 수는 ra
 
 ## yaml 위치
 
-토픽은 Strimzi `KafkaTopic`(`kafka.strimzi.io/v1`)으로 만든다. 아직 작성 전이고, 폴더만 있다.
+토픽은 Strimzi `KafkaTopic`(`kafka.strimzi.io/v1`)으로 만든다. 파일 이름은 토픽 이름과 같게 둔다. 지금은 [binance.raw.usdm.crypto.markprice.yaml](../../Infra/Kafka/Kafka-Topic/binance/raw/crypto/binance.raw.usdm.crypto.markprice.yaml) 하나만 있다.
 
 ```text
 Infra/Kafka/Kafka-Topic/binance/

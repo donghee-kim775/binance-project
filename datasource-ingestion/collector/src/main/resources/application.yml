@@ -8,6 +8,17 @@ spring:
   #   release : application-release.yml → Kafka K8s 내부 DNS (deploy/common.yaml이 SPRING_PROFILES_ACTIVE=release로 켬)
   profiles:
     default: local
+  # Kafka producer — 접속 주소(bootstrap-servers)는 프로파일 yml에 있다 (docs/kafka/settings.md 3절)
+  kafka:
+    producer:
+      # 
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer   # 키: 심볼
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer # 값: envelope JSON (BinanceRawEventPublisher가 직렬화)
+      acks: all               # ISR 전부(min.insync.replicas 2 이상)에 써진 뒤 성공 처리
+      compression-type: zstd  # 토픽 compression.type과 맞춰 브로커가 다시 압축하지 않게 한다
+      # 
+      properties:
+        enable.idempotence: true # 재시도로 같은 메시지가 두 번 써지는 것을 막는다
 
 binance:
   # endpoint: 환경(테스트넷/프로덕션)에 따라서만 달라지는 product별 접속 주소 → BinanceProperties.Endpoint

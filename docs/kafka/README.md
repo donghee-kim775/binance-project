@@ -21,6 +21,6 @@
 ## 현재 상태
 
 - 클러스터: Strimzi, KRaft, Kafka 4.3.1, 브로커 3대 (`kafka` 네임스페이스). 리스너는 클러스터 내부 전용.
-- 토픽: 설계만 있고 `KafkaTopic` yaml은 아직 없다.
-- 수집 앱: `spring-kafka`가 꺼져 있어 `[KAFKA:SKIPPED]` 로그로만 발행을 대신한다.
+- 토픽: `binance.raw.usdm.crypto.markprice` 하나만 만들었다. 나머지는 설계만 있다.
+- 수집 앱: `KafkaTemplate`으로 실제 발행한다. 지금 배포된 pod는 `markprice-usdm-sov` 하나다.
 - 클러스터 내부 주소: `binance-cluster-kafka-bootstrap.kafka.svc:9092`

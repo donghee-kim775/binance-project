@@ -184,7 +184,7 @@ public KafkaConfig(Environment environment) {
 
 ### Spring이 대신 읽는 값
 
-`spring.profiles.active`, `spring.config.additional-location`, `logging.level.*`처럼 Spring 표준 키는 Spring Boot 안에 이미 읽는 코드가 있다. 우리는 값만 주면 된다. `spring.kafka.*`도 `spring-kafka`를 켜면 Spring Boot의 `KafkaProperties`가 같은 방식으로 읽는다.
+`spring.profiles.active`, `spring.config.additional-location`, `logging.level.*`처럼 Spring 표준 키는 Spring Boot 안에 이미 읽는 코드가 있다. 우리는 값만 주면 된다. `spring.kafka.*`도 Spring Boot의 `KafkaProperties`가 같은 방식으로 읽어 `KafkaTemplate`을 만든다.
 
 ### 쓰지 않는 방법
 

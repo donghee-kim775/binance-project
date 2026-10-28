@@ -22,9 +22,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-json'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-	// Kafka는 아직 붙이지 않는다 (POC 단계 — 무엇을 보낼지 로그로만 확인한다).
-	// 실제로 발행을 시작할 때 아래 의존성을 켜고 RawEventPublisher에 KafkaTemplate을 주입해서 쓴다.
-	// implementation 'org.springframework.kafka:spring-kafka'
+	// Kafka 발행 — spring.kafka.* 설정으로 KafkaTemplate을 자동 구성한다 (Spring Boot 4부터 기술별 starter로 분리)
+	implementation 'org.springframework.boot:spring-boot-starter-kafka'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

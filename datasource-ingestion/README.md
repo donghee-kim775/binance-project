@@ -24,9 +24,9 @@ datasource-ingestion/
 │       ├── service/
 │       │   └── MarketDataIngestService.java     # combined 메시지 풀기 → envelope 생성 → 발행 위임
 │       ├── model/
-│       │   └── EventEnvelope.java               # 공통 envelope (payload는 원본 그대로)
+│       │   └── BinanceEventEnvelope.java               # 공통 envelope (payload는 원본 그대로)
 │       └── kafka/
-│           └── RawEventPublisher.java           # raw 이벤트 발행 지점 (지금은 로그만)
+│           └── BinanceRawEventPublisher.java           # raw 이벤트 발행 지점 (지금은 로그만)
 │
 ├── deploy/                            # 이미지 · K8s 매니페스트 (kustomize)
 │   ├── Dockerfile                     # variable / fixed 공용 이미지 1개

@@ -120,16 +120,17 @@ namespace binance-ingestion
 - 파티션은 줄일 수 없고, 늘리면 키→파티션 대응이 바뀐다. 그래서 처음에 여유 있게 잡는다.
 - Flink에서 조인하는 토픽끼리는 파티션 수를 맞춘다 (co-partitioning).
 
-### Producer 설정 (수집 앱, 예정)
+### Producer 설정 (수집 앱)
 
-`spring-kafka`가 아직 꺼져 있다. 켤 때 [KafkaConfig.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/config/KafkaConfig.java)나 `spring.kafka.producer.*`에 넣는다.
+[application.yml](../../datasource-ingestion/collector/src/main/resources/application.yml)의 `spring.kafka.producer.*`에 있다. Spring Boot가 이 값으로 `KafkaTemplate`을 만들고, [BinanceRawEventPublisher.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/kafka/BinanceRawEventPublisher.java)가 그것으로 발행한다.
 
 | 설정 | 값 | 이유 |
 | --- | --- | --- |
 | `acks` | `all` | ISR 전부(최소 2개)에 써진 뒤 성공 처리. `min.insync.replicas`와 짝이어야 의미가 있다 |
 | `enable.idempotence` | `true` | 재시도로 같은 메시지가 두 번 써지는 것을 브로커가 막는다 |
+| `compression-type` | `zstd` | 토픽 `compression.type`과 같게 해서 브로커가 다시 압축하지 않게 한다 |
 | `key-serializer` | `StringSerializer` | 키는 심볼 문자열 |
-| `value-serializer` | JSON | envelope 그대로 |
+| `value-serializer` | `StringSerializer` | envelope는 `BinanceRawEventPublisher`가 앱의 `ObjectMapper`로 JSON 문자열로 바꾼다. `@JsonProperty`(snake_case) 규칙이 그대로 적용된다 |
 
 kafka-clients 3.0부터 `acks=all`, `enable.idempotence=true`가 기본값이지만 의도를 남기려고 명시한다.
 
@@ -177,7 +178,7 @@ Binance ──①──> 수집 pod ──②──> Kafka 브로커 ──③
 | 구간 | 무엇이 사라지나 | 막는 장치 |
 | --- | --- | --- |
 | ① WebSocket | 연결이 끊기거나 pod가 재시작되는 동안 온 메시지 | variable-rate pod Active-Active |
-| ② pod → 브로커 | `@Async` 큐·producer 버퍼에 있던 메시지 | Active-Active, `acks=all` + idempotence (예정) |
+| ② pod → 브로커 | `@Async` 큐·producer 버퍼에 있던 메시지 | Active-Active, `acks=all` + idempotence |
 | ③ 브로커 | 브로커 1대 장애 | RF 3, `min.insync.replicas` 2 |
 
 - `ingestExecutor` 큐([AsyncConfig.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/config/AsyncConfig.java))는 200개다. 꽉 차면 기본 정책(`AbortPolicy`)으로 작업을 거절하고 그 메시지는 사라진다.
@@ -217,8 +218,7 @@ Binance ──①──> 수집 pod ──②──> Kafka 브로커 ──③
 ## 6. 남은 과제
 
 - **유입량 측정 후 토픽별 `retention.bytes` 배분** (4.1)
-- **`KafkaTopic` yaml 작성** ([topics.md](topics.md)의 토픽 목록)
-- **producer 연동:** `spring-kafka`를 켜고 3절의 producer 설정을 넣는다.
+- **`KafkaTopic` yaml 작성** ([topics.md](topics.md)의 토픽 목록, 지금은 markprice 1개)
 - **`ingestExecutor` 거절 정책:** 큐가 찼을 때 버릴지(지금), 호출 스레드에서 처리할지(`CallerRunsPolicy`, WebSocket 수신이 밀림) 정한다.
 - **graceful shutdown:** 종료 시 큐와 producer 버퍼를 비우고 내려가게 한다.
 - **로컬 접속용 리스너** (4.4): Kafka 연동 작업 때 정한다.

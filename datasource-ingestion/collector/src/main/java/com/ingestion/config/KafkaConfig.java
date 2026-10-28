@@ -8,15 +8,15 @@ import org.springframework.core.env.Environment;
 import jakarta.annotation.PostConstruct;
 
 /**
- * Kafka 접속 설정. 지금은 어느 Kafka에 붙을지(bootstrap-servers)만 읽어서 시작할 때 로그로 남긴다 —
- * spring-kafka 의존성이 아직 꺼져 있어 실제 발행은 RawEventPublisher가 로그로만 대신한다.
+ * Kafka 접속 설정. 어느 Kafka에 붙을지(bootstrap-servers)를 읽어서 시작할 때 로그로 남긴다.
+ * 실제 발행은 BinanceRawEventPublisher가 Spring Boot가 자동으로 만든 KafkaTemplate으로 한다.
  *
  * 주소는 프로파일별 yml이 정한다 (환경변수 SPRING_KAFKA_BOOTSTRAP_SERVERS가 있으면 그 값이 우선):
  *   - local   : application-local.yml   → localhost:9092
  *   - release : application-release.yml → binance-cluster-kafka-bootstrap.kafka.svc:9092 (K8s 내부 DNS)
  *
- * 나중에 Kafka를 연결할 때 build.gradle의 spring-kafka를 켜면, Spring Boot가 같은 키(spring.kafka.*)로
- * KafkaTemplate을 자동으로 만든다. 직렬화 · acks 같은 producer 설정이 필요하면 이 클래스에 이어서 둔다.
+ * KafkaTemplate은 Spring Boot가 같은 키(spring.kafka.*)로 자동으로 만든다.
+ * 직렬화 · acks · 압축 같은 producer 설정은 application.yml의 spring.kafka.producer.*에 있다.
  */
 @Configuration
 public class KafkaConfig {
@@ -33,6 +33,8 @@ public class KafkaConfig {
         this.bootstrapServers = environment.getProperty("spring.kafka.bootstrap-servers", "");
     }
 
+    // [호출] 스프링 — 이 Bean을 만든 직후 1회
+    // [스레드] main
     @PostConstruct
     void logBootstrapServers() {
         if (bootstrapServers.isBlank()) {

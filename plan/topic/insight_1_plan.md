@@ -186,6 +186,6 @@ end-to-end           = ⑥ − ②
 ## [남은 과제]
 
 - **clean 토픽 경유 여부:** dedup과 join을 한 Flink job으로 합치면 Kafka를 한 번 덜 거쳐 지연이 줄어든다. 대신 clean 토픽을 다른 분석에서 재사용할 수 없다. 현재는 단계별 지연 측정과 재사용을 위해 job 2개로 둔다.
-- **collector Kafka 발행:** [RawEventPublisher.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/kafka/RawEventPublisher.java)는 토픽(설정 `binance.subscription.streams[].topic`), 키(심볼), envelope `receive_time`까지 이 문서 기준으로 맞춰져 있지만, `spring-kafka`가 꺼져 있어 아직 로그만 남긴다.
+- **collector Kafka 발행:** [BinanceRawEventPublisher.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/kafka/BinanceRawEventPublisher.java)는 토픽(설정 `binance.subscription.streams[].topic`), 키(심볼), envelope `receive_time`까지 이 문서 기준으로 맞춰 실제로 발행한다. 토픽 yaml은 `binance.raw.usdm.crypto.markprice`만 있다.
 - **Spot 신선도 체크 기준 시각:** Spot bookTicker에는 `E`가 없어 envelope `event_time`이 `null`이다. job 2의 `m.eventTime() - s.eventTime() < 2000` 비교에서 Spot 쪽은 `receive_time`을 써야 한다.
 - **analytics 토픽 이름:** basis는 Spot과 USD-M을 함께 쓰는 결과라 이름에 product를 넣지 않았다 (`binance.analytics.crypto.basis`). 이 예외를 [plan.md](plan.md)의 이름 규칙에도 적어 둔다.

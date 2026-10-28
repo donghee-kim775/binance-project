@@ -142,7 +142,7 @@ dedup state TTL은 1분이다 (두 pod 사이 도착 시차보다 넉넉하게).
 
 ### 4.5 남은 이슈 / 다음 단계
 
-- **Kafka 발행:** collector의 `spring-kafka`가 아직 꺼져 있어 `RawEventPublisher`는 토픽·키를 로그로만 남긴다 (`[KAFKA:SKIPPED]`). 토픽 이름(`binance.subscription.streams[].topic`)과 키(심볼), envelope의 `receive_time`은 이미 이 설계대로 들어가 있다.
+- **Kafka 발행:** collector가 `KafkaTemplate`으로 실제 발행한다 (`binance.raw.usdm.crypto.markprice`는 kind에서 확인함). 토픽 이름(`binance.subscription.streams[].topic`)과 키(심볼), envelope의 `receive_time`은 이미 이 설계대로 들어가 있다.
 - **Flink job 1, 2 구현:** 아직 없다. `plan/consumer/`에 설계를 정리한다.
 - **Spot 신선도 체크의 기준 시각:** Spot bookTicker는 `event_time`이 `null`이다. job 2의 "2초 넘은 Spot은 버림" 비교는 Spot 쪽에 `receive_time`을 써야 한다.
 - **z-score 계산 위치:** job 2 안에서 할지, basis 출력을 읽는 별도 job으로 뺄지 정한다.
