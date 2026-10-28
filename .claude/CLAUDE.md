@@ -22,7 +22,7 @@ Binance WebSocket 시장 데이터를 Kafka로 수집하고 Flink로 분석하�
 - **Pod 그룹:**
   - variable-rate (bookTicker, trade/aggTrade, depth): Active-Active, replicas 2, RollingUpdate `maxUnavailable: 0`
   - fixed-rate (markPrice@1s): Active-Standby, replicas 1, `Recreate`
-- **네임스페이스:** 수집 앱 `binance-ingestion`, Kafka `kafka`
+- **네임스페이스:** 수집 앱 `binance-ingestion`, 처리(Flink job) `binance-processing`, Kafka `kafka`, Flink Operator `flink-operator`
 - 수집 심볼이나 스트림이 바뀌면 `0TickerInfoTable.md`, `deploy/`, `plan/topic/plan.md`, `docs/kafka/topics.md`, README 수집 대상 표를 함께 맞춘다 (`/add-symbol`).
 
 ## 코드 주석 규칙 (흐름 추적)

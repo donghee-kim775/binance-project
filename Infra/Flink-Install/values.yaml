@@ -1,0 +1,22 @@
+# Flink Kubernetes Operator 1.16.1 helm values (기본값에서 바꾼 것만)
+#   helm install flink-kubernetes-operator flink-operator-repo/flink-kubernetes-operator \
+#     --version 1.16.1 -n flink-operator --create-namespace -f Infra/Flink-Install/values.yaml
+
+# Operator가 FlinkDeployment를 지켜볼 namespace. 지정하면 RBAC(서비스 계정 flink 포함)도 이 namespace에만 만든다.
+# 비워 두면 클러스터 전체를 보고 ClusterRole을 쓴다
+watchNamespaces:
+  - binance-processing
+
+# admission webhook(FlinkDeployment 검증 · 기본값 주입)을 끈다.
+# 켜면 TLS 인증서가 필요해 cert-manager를 먼저 설치해야 한다. 꺼도 Operator 동작은 같고,
+# 잘못된 설정은 apply 시점이 아니라 Operator가 처리할 때 FlinkDeployment status에 에러로 나온다
+webhook:
+  create: false
+
+operatorPod:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 512Mi
