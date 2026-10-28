@@ -1,6 +1,6 @@
 # Flink dedup 테스트 job (MiniCluster, pod 하나)
-#   docker build -t flink-test:0.0.1 flink-test-app   (consumer/flink-test/ 에서)
-#   kind load docker-image flink-test:0.0.1 --name study
+#   docker build -t kimdonghee125/flink-test:0.0.1 flink-test-app   (consumer/flink-test/ 에서)
+#   docker push kimdonghee125/flink-test:0.0.1
 #   kubectl apply -f k8s/
 apiVersion: v1
 kind: Namespace
@@ -32,12 +32,12 @@ spec:
         runAsNonRoot: true
       containers:
         - name: flink-test
-          image: flink-test:0.0.1
-          imagePullPolicy: IfNotPresent   # kind load로 넣은 로컬 이미지를 쓴다
+          image: kimdonghee125/flink-test:0.0.1
+          imagePullPolicy: IfNotPresent   # Docker Hub(kimdonghee125)에서 받는다. 태그를 올려서 배포한다
           env:
             # 클러스터 안이라 plain 리스너(9092)로 바로 붙는다 (로컬 접속용 리스너 불필요)
             - name: KAFKA_BOOTSTRAP_SERVERS
-              value: binance-cluster-kafka-bootstrap.kafka.svc:9092
+              value: binance-cluster-kafka-bootstrap.binancekafka.svc:9092
           resources:
             requests:
               cpu: 250m

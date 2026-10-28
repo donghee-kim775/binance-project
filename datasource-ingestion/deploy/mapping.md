@@ -115,7 +115,7 @@ Spring Boot가 시작되면서 **Environment**(모든 설정값을 모아 둔 �
 | 프로파일 | 켜지는 곳 | 파일 | `spring.kafka.bootstrap-servers` 기본값 |
 | --- | --- | --- | --- |
 | `local` | 아무것도 안 줄 때 (`bootRun`, `java -jar`) | `application-local.yml` | `localhost:9092` |
-| `release` | K8s — `common.yaml`의 `SPRING_PROFILES_ACTIVE: release` | `application-release.yml` | `binance-cluster-kafka-bootstrap.kafka.svc:9092` (클러스터 내부 DNS) |
+| `release` | K8s — `common.yaml`의 `SPRING_PROFILES_ACTIVE: release` | `application-release.yml` | `binance-cluster-kafka-bootstrap.binancekafka.svc:9092` (클러스터 내부 DNS) |
 
 주소를 바꾸려면 환경변수 `SPRING_KAFKA_BOOTSTRAP_SERVERS`를 준다 (로컬: 셸에서 지정, K8s: `common.yaml`에 추가). `spring.kafka.bootstrap-servers`는 Spring 표준 키라, relaxed binding으로 이 환경변수가 자동으로 같은 키가 되고 yml보다 우선한다.
 

@@ -1,7 +1,7 @@
 # Flink dedup job — raw 9개 → clean 9개 (consumer/flink-design.md)
 # Flink Operator가 이 리소스를 보고 JobManager · TaskManager pod를 띄우고 job을 제출한다.
-#   docker build -t flink-app:0.0.1 .                        (consumer/flink-app/ 에서)
-#   kind load docker-image flink-app:0.0.1 --name study      (kind가 아니면 레지스트리에 push하고 image를 바꾼다)
+#   docker build -t kimdonghee125/flink-app:0.0.1 .          (consumer/flink-app/ 에서)
+#   docker push kimdonghee125/flink-app:0.0.1
 #   kubectl apply -f deploy/dedup.yaml
 apiVersion: v1
 kind: Namespace
@@ -14,8 +14,8 @@ metadata:
   name: flink-dedup
   namespace: binance-processing
 spec:
-  image: flink-app:0.0.1
-  imagePullPolicy: IfNotPresent   # kind load로 넣은 로컬 이미지를 쓴다
+  image: kimdonghee125/flink-app:0.0.1
+  imagePullPolicy: IfNotPresent   # Docker Hub(kimdonghee125)에서 받는다. 태그를 올려서 배포한다
   flinkVersion: v2_2
   # Operator 설치(helm) 때 이 namespace에 만들어지는 서비스 계정. JobManager가 TaskManager pod를 만들 때 쓴다
   serviceAccount: flink
@@ -41,7 +41,7 @@ spec:
         - name: flink-main-container
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
-              value: binance-cluster-kafka-bootstrap.kafka.svc:9092
+              value: binance-cluster-kafka-bootstrap.binancekafka.svc:9092
 
   job:
     jarURI: local:///opt/flink/usrlib/flink-app.jar   # 이미지 안의 경로 (Dockerfile)

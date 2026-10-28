@@ -4,7 +4,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
   name: binance.raw.spot.crypto.bookticker
-  namespace: kafka
+  namespace: binancekafka
   labels:
     strimzi.io/cluster: binance-cluster
 spec:
@@ -20,7 +20,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
   name: binance.clean.spot.crypto.bookticker
-  namespace: kafka
+  namespace: binancekafka
   labels:
     strimzi.io/cluster: binance-cluster
 spec:

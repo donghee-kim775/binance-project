@@ -36,12 +36,12 @@ Flink 2.2.1, Kafka 커넥터 5.0.0-2.2, Java 17.
 
 ```bash
 kubectl apply -f k8s/topics.yaml
-kubectl get kafkatopic -n kafka
+kubectl get kafkatopic -n binancekafka
 ```
 
 ### 2. 로컬에서 Kafka에 붙을 수 있게 하기
 
-지금 Kafka 리스너는 클러스터 안(`*.kafka.svc`)만 알려 준다. bootstrap 서비스만 port-forward하면 클라이언트가 broker 주소를 받은 뒤 그 주소로 다시 붙으려다 실패한다 (advertised listener).
+지금 Kafka 리스너는 클러스터 안(`*.binancekafka.svc`)만 알려 준다. bootstrap 서비스만 port-forward하면 클라이언트가 broker 주소를 받은 뒤 그 주소로 다시 붙으려다 실패한다 (advertised listener).
 
 그래서 **브로커마다 `localhost:<포트>`를 알려 주는 리스너**를 하나 더 두고, 브로커 pod마다 port-forward한다. `Infra/Kafka/Kafka-Cluster/kafka-cluster.yaml`의 `listeners:`에 추가:
 
@@ -68,9 +68,9 @@ kubectl get kafkatopic -n kafka
 kubectl apply -f Infra/Kafka/Kafka-Cluster/kafka-cluster.yaml   # 브로커가 하나씩 재시작된다
 
 # 터미널 하나에서 띄워 둔다
-kubectl port-forward -n kafka pod/binance-cluster-binance-cluster-pool-0 19090:9094 &
-kubectl port-forward -n kafka pod/binance-cluster-binance-cluster-pool-1 19091:9094 &
-kubectl port-forward -n kafka pod/binance-cluster-binance-cluster-pool-2 19092:9094 &
+kubectl port-forward -n binancekafka pod/binance-cluster-binance-cluster-pool-0 19090:9094 &
+kubectl port-forward -n binancekafka pod/binance-cluster-binance-cluster-pool-1 19091:9094 &
+kubectl port-forward -n binancekafka pod/binance-cluster-binance-cluster-pool-2 19092:9094 &
 ```
 
 ### 3. Flink job 실행
@@ -78,13 +78,13 @@ kubectl port-forward -n kafka pod/binance-cluster-binance-cluster-pool-2 19092:9
 **kind에서 (기본):**
 
 ```bash
-docker build -t flink-test:0.0.1 flink-test-app
-kind load docker-image flink-test:0.0.1 --name study
+docker build -t kimdonghee125/flink-test:0.0.1 flink-test-app
+docker push kimdonghee125/flink-test:0.0.1
 kubectl apply -f k8s/flink-test.yaml
 kubectl logs -n binance-processing deploy/flink-test-dedup -f
 ```
 
-pod 하나 안에서 JobManager와 TaskManager가 같이 뜬다 (MiniCluster). Flink Operator는 쓰지 않는다. Kafka에는 클러스터 안 주소(`binance-cluster-kafka-bootstrap.kafka.svc:9092`)로 붙으므로 2단계 리스너가 필요 없다. 2단계는 노트북 때문에 필요하다.
+pod 하나 안에서 JobManager와 TaskManager가 같이 뜬다 (MiniCluster). Flink Operator는 쓰지 않는다. Kafka에는 클러스터 안 주소(`binance-cluster-kafka-bootstrap.binancekafka.svc:9092`)로 붙으므로 2단계 리스너가 필요 없다. 2단계는 노트북 때문에 필요하다.
 
 코드를 고친 뒤에는 이미지를 다시 빌드·load하고 `kubectl rollout restart -n binance-processing deploy/flink-test-dedup`.
 

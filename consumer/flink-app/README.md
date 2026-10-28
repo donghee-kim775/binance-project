@@ -49,8 +49,8 @@ kubectl apply -f Infra/Kafka/Kafka-Topic/binance/raw/crypto -f Infra/Kafka/Kafka
               -f Infra/Kafka/Kafka-Topic/binance/clean/crypto -f Infra/Kafka/Kafka-Topic/binance/clean/stock
 
 # 이미지 · 배포 (consumer/flink-app/ 에서)
-docker build -t flink-app:0.0.1 .
-kind load docker-image flink-app:0.0.1 --name study
+docker build -t kimdonghee125/flink-app:0.0.1 .
+docker push kimdonghee125/flink-app:0.0.1
 kubectl apply -f deploy/dedup.yaml
 
 kubectl get flinkdeployment -n binance-processing        # JOB STATUS = RUNNING
@@ -60,7 +60,7 @@ kubectl logs -n binance-processing deploy/flink-dedup -f # JobManager 로그
 
 - jar는 `./gradlew shadowJar`로 만든다 (`build/libs/flink-app.jar`). Flink 본체(`flink-streaming-java`, `flink-connector-base`)는 Flink 이미지에 있어 `compileOnly`로 두고, Kafka 커넥터와 Jackson만 jar에 넣는다.
 - 코드를 고친 뒤에는 이미지 태그를 올려(`0.0.2`) 빌드 · load하고 `deploy/dedup.yaml`의 `image`를 바꿔 apply한다. 태그가 같으면 Operator가 바뀐 것을 모른다.
-- Kafka에는 클러스터 안 주소(`binance-cluster-kafka-bootstrap.kafka.svc:9092`)로 붙는다.
+- Kafka에는 클러스터 안 주소(`binance-cluster-kafka-bootstrap.binancekafka.svc:9092`)로 붙는다.
 - [flink-test](../flink-test/)의 Deployment와 **같이 띄우지 않는다.** 둘 다 `binance.clean.spot.crypto.bookticker`에 써서 clean에 중복이 생긴다.
 
 ### 클러스터를 옮길 때
@@ -68,7 +68,7 @@ kubectl logs -n binance-processing deploy/flink-dedup -f # JobManager 로그
 | 바꿀 곳 | kind | 다른 클러스터 |
 | --- | --- | --- |
 | 이미지 전달 | `kind load docker-image` | 레지스트리에 push하고 `deploy/dedup.yaml`의 `image`를 레지스트리 주소로, `imagePullPolicy`는 그대로 또는 `Always` |
-| Kafka 주소 | `binance-cluster-kafka-bootstrap.kafka.svc:9092` | Kafka가 같은 클러스터 `kafka` namespace에 있으면 그대로 |
+| Kafka 주소 | `binance-cluster-kafka-bootstrap.binancekafka.svc:9092` | Kafka가 같은 클러스터 `binancekafka` namespace에 있으면 그대로 |
 | 메모리 | job 하나에 JobManager 1Gi + TaskManager 1.5Gi | 노드 여유가 있으면 `taskManager.resource.memory`를 늘린다 |
 
 ## 동작 확인
@@ -78,10 +78,10 @@ kubectl logs -n binance-processing deploy/flink-dedup -f # JobManager 로그
 ```bash
 P=binance-cluster-binance-cluster-pool-0
 printf 'BTCUSDT|{"symbol":"BTCUSDT","collector_id":"pod-a","payload":{"u":1,"s":"BTCUSDT"}}\nBTCUSDT|{"symbol":"BTCUSDT","collector_id":"pod-b","payload":{"u":1,"s":"BTCUSDT"}}\n' \
-  | kubectl exec -i -n kafka $P -- /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 \
+  | kubectl exec -i -n binancekafka $P -- /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 \
       --topic binance.raw.spot.crypto.bookticker --reader-property parse.key=true --reader-property key.separator='|'
 
-kubectl exec -n kafka $P -- /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+kubectl exec -n binancekafka $P -- /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
   --topic binance.clean.spot.crypto.bookticker --from-beginning --timeout-ms 6000 --property print.key=true
 ```
 

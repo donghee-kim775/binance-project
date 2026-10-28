@@ -13,7 +13,7 @@ import jakarta.annotation.PostConstruct;
  *
  * 주소는 프로파일별 yml이 정한다 (환경변수 SPRING_KAFKA_BOOTSTRAP_SERVERS가 있으면 그 값이 우선):
  *   - local   : application-local.yml   → localhost:9092
- *   - release : application-release.yml → binance-cluster-kafka-bootstrap.kafka.svc:9092 (K8s 내부 DNS)
+ *   - release : application-release.yml → binance-cluster-kafka-bootstrap.binancekafka.svc:9092 (K8s 내부 DNS)
  *
  * KafkaTemplate은 Spring Boot가 같은 키(spring.kafka.*)로 자동으로 만든다.
  * 직렬화 · acks · 압축 같은 producer 설정은 application.yml의 spring.kafka.producer.*에 있다.
@@ -28,7 +28,7 @@ public class KafkaConfig {
     // Spring Environment(실행 인자 · 환경변수 · yml을 우선순위대로 합친 저장소)에서 직접 꺼낸다
     // spring.kafka.bootstrap-servers → 없으면 빈 문자열 (test 프로파일처럼 프로파일 yml이 없을 때)
     // local 개발용 => localhost:9092
-    // k8s release => binance-cluster-kafka-bootstrap.kafka.svc:9092
+    // k8s release => binance-cluster-kafka-bootstrap.binancekafka.svc:9092
     public KafkaConfig(Environment environment) {
         this.bootstrapServers = environment.getProperty("spring.kafka.bootstrap-servers", "");
     }

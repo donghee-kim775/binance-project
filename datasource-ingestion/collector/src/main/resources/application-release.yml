@@ -3,4 +3,4 @@
 # 다른 주소를 쓰려면 환경변수 SPRING_KAFKA_BOOTSTRAP_SERVERS로 덮어쓴다 (deploy/common.yaml에 추가)
 spring:
   kafka:
-    bootstrap-servers: binance-cluster-kafka-bootstrap.kafka.svc:9092
+    bootstrap-servers: binance-cluster-kafka-bootstrap.binancekafka.svc:9092

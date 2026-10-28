@@ -202,7 +202,7 @@ System.getenv("COLLECTOR_ID");   // OS 환경변수만 봄, yml · 실행 인자
 | --- | --- | --- | --- |
 | `application.yml` | jar 안 | 항상 | `spring.profiles.default: local`, `binance.endpoint.*`, `binance.subscription.*`(로컬 기본값) |
 | `application-local.yml` | jar 안 | 프로파일 `local` | `spring.kafka.bootstrap-servers: localhost:9092` |
-| `application-release.yml` | jar 안 | 프로파일 `release` | `spring.kafka.bootstrap-servers: binance-cluster-kafka-bootstrap.kafka.svc:9092` |
+| `application-release.yml` | jar 안 | 프로파일 `release` | `spring.kafka.bootstrap-servers: binance-cluster-kafka-bootstrap.binancekafka.svc:9092` |
 | `/config/application.yaml` | Pod (ConfigMap 마운트) | K8s, 항상 | `binance.subscription.*` (Pod별 구독) |
 
 `/config/` 위치는 Dockerfile의 `SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/config/`가 알려 준다. `additional-location`은 기본 위치에 **추가**로 읽는다는 뜻이라 jar 안의 `application.yml`도 계속 읽힌다.

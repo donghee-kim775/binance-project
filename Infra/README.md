@@ -1,7 +1,7 @@
 ## Data Infra
 
 # Cert-Manager
-Flink Operator webhook을 켤 때만 필요하다. 지금은 webhook을 꺼서 설치하지 않는다.
+Flink Operator webhook을 켤 때만 필요하다. 지금은 webhook을 꺼서 필수는 아니지만, 클러스터에는 v1.13.0이 설치돼 있다.
 ```shell
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
 ```

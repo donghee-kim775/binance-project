@@ -13,7 +13,7 @@
 
 ```text
 kind 클러스터 "study" (PC 한 대, 노드 3개: control-plane 1 + worker 2)
-└── namespace kafka
+└── namespace binancekafka
     ├── Strimzi Operator
     ├── Kafka "binance-cluster" (KRaft, 4.3.1)
     │   └── KafkaNodePool "binance-cluster-pool": 노드 3개 (broker + controller 겸용, PVC 5Gi씩)
@@ -21,7 +21,7 @@ kind 클러스터 "study" (PC 한 대, 노드 3개: control-plane 1 + worker 2)
     └── Kafka UI (NodePort 30080)
 
 namespace binance-ingestion
-└── 수집 pod ──> binance-cluster-kafka-bootstrap.kafka.svc:9092
+└── 수집 pod ──> binance-cluster-kafka-bootstrap.binancekafka.svc:9092
 ```
 
 | 항목 | 값 |
@@ -32,7 +32,7 @@ namespace binance-ingestion
 | 노드 | 3개, broker + controller 겸용 |
 | 저장소 | 노드당 PVC 5Gi |
 | 리스너 | `plain` 9092, `tls` 9093 (둘 다 클러스터 내부 전용) |
-| 접속 주소 (클러스터 안) | `binance-cluster-kafka-bootstrap.kafka.svc:9092` |
+| 접속 주소 (클러스터 안) | `binance-cluster-kafka-bootstrap.binancekafka.svc:9092` |
 | 모니터링 | Kafka UI, `localhost:30080` |
 
 ---

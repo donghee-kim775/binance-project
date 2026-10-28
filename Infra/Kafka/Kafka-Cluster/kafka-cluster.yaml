@@ -2,7 +2,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: binance-cluster-pool
-  namespace: kafka
+  namespace: binancekafka
   labels:
     strimzi.io/cluster: binance-cluster
 spec:
@@ -24,11 +24,10 @@ apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: binance-cluster
-  namespace: kafka
+  namespace: binancekafka
 spec:
   # Kafka 클러스터 설정
   kafka:
-    version: "4.3.1" # 사용할 Apache Kafka 엔진 버전
     
     # 클라이언트 통신을 위한 리스너(포트 및 프로토콜) 설정
     listeners:
@@ -62,8 +61,8 @@ spec:
       log.retention.hours: 168
       
       # 데이터 보존 정책: 용량 기준 (파티션당 32MiB 초과 시 오래된 세그먼트부터 삭제)
-      # 브로커 디스크 5Gi 기준: RF 3 · 브로커 3대라 브로커마다 모든 파티션(raw 45 + clean 36 + analytics 3 = 84개)의 복제본을 가진다
-      # 파티션 하나의 최대 크기 ≈ retention.bytes + segment.bytes(활성 세그먼트는 지우지 않음) = 48MiB → 84 × 48MiB ≈ 3.9GiB (디스크의 약 80%)
+      # 브로커 디스크 5Gi 기준: RF 3 · 브로커 3대라 브로커마다 모든 파티션(raw 39 + clean 36 = 75개)의 복제본을 가진다
+      # 파티션 하나의 최대 크기 ≈ retention.bytes + segment.bytes(활성 세그먼트는 지우지 않음) = 48MiB → 75 × 48MiB ≈ 3.5GiB (디스크의 약 70%)
       log.retention.bytes: 33554432
 
       # 세그먼트 크기 (16MiB). 기본값 1GiB면 retention.bytes보다 커서 용량 기준 삭제가 동작하지 않는다

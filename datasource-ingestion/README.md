@@ -69,11 +69,11 @@ cd collector
 
 자세한 준비물, 실행 결과 로그 읽는 법, 확인된 스트림 조합은 [`collector/README.md`](collector/README.md)를 참고한다.
 
-## K8s(kind)에 배포하려면
+## K8s에 배포하려면
 
 ```bash
-docker build -f deploy/Dockerfile -t ingestion-collector:0.0.1 collector
-kind load docker-image ingestion-collector:0.0.1
+docker build -f deploy/Dockerfile -t kimdonghee125/ingestion-collector:0.0.1 collector
+docker push kimdonghee125/ingestion-collector:0.0.1
 kubectl apply -k deploy
 kubectl get pods -n binance-ingestion -L rate-group
 ```
