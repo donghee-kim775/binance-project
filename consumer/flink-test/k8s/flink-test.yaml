@@ -1,0 +1,46 @@
+# Flink dedup 테스트 job (MiniCluster, pod 하나)
+#   docker build -t flink-test:0.0.1 flink-test-app   (consumer/flink-test/ 에서)
+#   kind load docker-image flink-test:0.0.1 --name study
+#   kubectl apply -f k8s/
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: binance-processing
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-test-dedup
+  namespace: binance-processing
+  labels:
+    app: flink-test-dedup
+spec:
+  # 한 개만 띄운다. 2개면 같은 group id로 파티션을 나눠 읽지만, state가 pod마다 따로라 테스트 의미가 흐려진다
+  replicas: 1
+  # 새 pod가 뜨기 전에 옛 pod를 내린다 (같은 컨슈머 그룹을 두 job이 동시에 읽지 않게)
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: flink-test-dedup
+  template:
+    metadata:
+      labels:
+        app: flink-test-dedup
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: flink-test
+          image: flink-test:0.0.1
+          imagePullPolicy: IfNotPresent   # kind load로 넣은 로컬 이미지를 쓴다
+          env:
+            # 클러스터 안이라 plain 리스너(9092)로 바로 붙는다 (로컬 접속용 리스너 불필요)
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: binance-cluster-kafka-bootstrap.kafka.svc:9092
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              memory: 1Gi

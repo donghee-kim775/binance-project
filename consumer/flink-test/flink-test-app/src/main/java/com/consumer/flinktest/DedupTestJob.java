@@ -5,6 +5,7 @@ import java.time.Duration;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.OpenContext;
+import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
@@ -21,6 +22,7 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
+import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +35,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  * Active-Active 수집 pod 2개가 같은 이벤트를 각자 발행하므로 raw에는 같은 (symbol, u)가 두 번 들어온다.
  * u(order book update id)는 심볼마다 따로 증가하므로 u만으로는 키가 될 수 없고 심볼과 묶는다.
  *
- * 실행: ./gradlew run (Kafka 주소는 환경변수 KAFKA_BOOTSTRAP_SERVERS, 기본 localhost:19090)
+ * 실행: 로컬은 ./gradlew run, kind는 consumer/flink-test/k8s/flink-test.yaml (Kafka 주소는 환경변수 KAFKA_BOOTSTRAP_SERVERS, 기본 localhost:19090)
  */
 public class DedupTestJob {
 
@@ -52,7 +54,8 @@ public class DedupTestJob {
                 .setBootstrapServers(bootstrap)
                 .setTopics(RAW_TOPIC)
                 .setGroupId("flink-test-dedup")
-                .setStartingOffsets(OffsetsInitializer.earliest())
+                // 커밋된 offset부터 읽는다 (pod가 재시작돼도 이어서). 처음 실행이라 커밋이 없으면 맨 앞부터
+                .setStartingOffsets(OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST))
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
@@ -61,8 +64,8 @@ public class DedupTestJob {
                 .setRecordSerializer(KafkaRecordSerializationSchema.<Tuple2<String, String>>builder()
                         .setTopic(CLEAN_TOPIC)
                         // 키는 심볼 (raw와 같은 키 → 같은 파티션 규칙)
-                        .setKeySerializationSchema(t -> t.f0.getBytes(StandardCharsets.UTF_8))
-                        .setValueSerializationSchema(t -> t.f1.getBytes(StandardCharsets.UTF_8))
+                        .setKeySerializationSchema(new FieldBytes(0))
+                        .setValueSerializationSchema(new FieldBytes(1))
                         .build())
                 .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
                 .build();
@@ -83,6 +86,24 @@ public class DedupTestJob {
     }
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /**
+     * (symbol, json)의 한 필드를 UTF-8 바이트로 바꾼다. 0 = 키(심볼), 1 = 값(JSON).
+     * 람다로 넘기면 KafkaSink가 입력 타입을 추론하지 못해 job 시작 시 InvalidTypesException이 난다
+     */
+    static class FieldBytes implements SerializationSchema<Tuple2<String, String>> {
+        private final int field;
+
+        FieldBytes(int field) {
+            this.field = field;
+        }
+
+        @Override
+        public byte[] serialize(Tuple2<String, String> t) {
+            String value = t.getField(field);
+            return value.getBytes(StandardCharsets.UTF_8);
+        }
+    }
 
     /** envelope JSON → (symbol, u, 원본 JSON). u는 Binance 원본 payload 안에 있다 */
     static Tuple3<String, Long, String> toKeyed(String json) throws Exception {
