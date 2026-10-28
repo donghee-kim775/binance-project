@@ -1,0 +1,52 @@
+# Flink dedup job — raw 9개 → clean 9개 (consumer/flink-design.md)
+# Flink Operator가 이 리소스를 보고 JobManager · TaskManager pod를 띄우고 job을 제출한다.
+#   docker build -t flink-app:0.0.1 .                        (consumer/flink-app/ 에서)
+#   kind load docker-image flink-app:0.0.1 --name study      (kind가 아니면 레지스트리에 push하고 image를 바꾼다)
+#   kubectl apply -f deploy/dedup.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: binance-processing
+---
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-dedup
+  namespace: binance-processing
+spec:
+  image: flink-app:0.0.1
+  imagePullPolicy: IfNotPresent   # kind load로 넣은 로컬 이미지를 쓴다
+  flinkVersion: v2_2
+  # Operator 설치(helm) 때 이 namespace에 만들어지는 서비스 계정. JobManager가 TaskManager pod를 만들 때 쓴다
+  serviceAccount: flink
+
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "1"   # job 병렬도(1)만큼만. 남는 슬롯은 메모리만 쓴다
+    # state는 heap에 둔다 (RocksDB를 안 쓰므로 managed memory가 거의 필요 없다 → TaskManager 메모리를 작게)
+    taskmanager.memory.managed.fraction: "0.1"
+
+  jobManager:
+    resource:
+      memory: "1024m"
+      cpu: 0.5
+  taskManager:
+    resource:
+      memory: "1536m"
+      cpu: 0.5
+
+  # JobManager · TaskManager 컨테이너 공통 설정. flink-main-container가 Flink가 도는 컨테이너 이름이다
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: binance-cluster-kafka-bootstrap.kafka.svc:9092
+
+  job:
+    jarURI: local:///opt/flink/usrlib/flink-app.jar   # 이미지 안의 경로 (Dockerfile)
+    entryClass: com.consumer.dedup.DedupJob
+    parallelism: 1
+    # stateless: 업그레이드 · 재배포 때 state(본 키 목록) 없이 새로 시작하고, 컨슈머 그룹에 커밋된 offset부터 읽는다.
+    # 체크포인트를 남길 저장소(PV, S3 등)가 아직 없어서다. dedup state는 TTL 1분이라 잃어도 영향이 작다
+    upgradeMode: stateless

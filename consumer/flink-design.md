@@ -2,7 +2,7 @@
 
 Kafka raw 토픽을 읽어 dedup과 분석을 하는 Flink 앱의 설계안이다. 수집 앱은 raw를 Kafka로 보내기만 하고, dedup·조인·분석은 전부 여기서 한다.
 
-> 상태: **설계안 (구현 전).** 지금 구현된 것은 로컬 테스트용 [flink-test/](flink-test/) 하나다. 확정되면 `plan/consumer/plan.md`에 결정 기록으로 옮긴다.
+> 상태: **dedup job 구현, basis job 예정.** dedup은 [flink-app/](flink-app/)에 있고 Flink Operator(`FlinkDeployment`)로 띄운다 (매니페스트 작성, 배포 검증 전). [flink-test/](flink-test/)는 경로 하나짜리 테스트 버전이다. 확정되면 `plan/consumer/plan.md`에 결정 기록으로 옮긴다.
 
 ## 전체 흐름
 
@@ -157,25 +157,27 @@ env.execute("dedup");
 **B.**
 
 ```text
-consumer/
-├── build.gradle                      # Flink 앱 하나 (jar 하나)
+consumer/flink-app/                   # Flink 앱 하나 (jar 하나)
+├── build.gradle
+├── Dockerfile
 ├── src/main/java/com/consumer/
 │   ├── common/
-│   │   ├── BinanceEventEnvelope.java     수집 앱 envelope와 같은 모양 (snake_case 필드)
-│   │   ├── EnvelopeDeserializer.java     Kafka value(JSON) → BinanceEventEnvelope
-│   │   └── KafkaIO.java                  KafkaSource / KafkaSink 공통 생성
+│   │   └── KafkaIO.java                  KafkaSource / KafkaSink 공통 생성                  (구현)
 │   ├── dedup/
-│   │   ├── DedupJob.java                 main(): 경로마다 source → dedup → sink
-│   │   ├── DedupFunction.java            KeyedProcessFunction, 처음 본 키만 통과
-│   │   └── DedupRoute.java               (raw 토픽, clean 토픽, 키 필드)
-│   └── basis/
+│   │   ├── DedupJob.java                 main(): 경로마다 source → parse → dedup → sink     (구현)
+│   │   ├── DedupRoute.java               (raw 토픽, clean 토픽, 키 필드)                   (구현)
+│   │   ├── DedupKeyParser.java           envelope → (symbol, id, JSON), 깨진 메시지는 버림  (구현)
+│   │   └── DedupFunction.java            KeyedProcessFunction, 처음 본 키만 통과            (구현)
+│   └── basis/                                                                              (예정)
 │       ├── BasisJob.java                 main(): clean bookTicker + raw markPrice → analytics
 │       ├── BasisFunction.java            KeyedCoProcessFunction
 │       └── model/  SpotMid, MarkPrice, Basis
 └── deploy/
-    ├── dedup.yaml                    # FlinkDeployment (entryClass = DedupJob)
-    └── basis.yaml                    # FlinkDeployment (entryClass = BasisJob)
+    ├── dedup.yaml                    # FlinkDeployment (entryClass = DedupJob)                    (구현)
+    └── basis.yaml                    # (예정)
 ```
+
+- dedup은 envelope를 고치지 않고 그대로 넘기므로, 전체를 객체로 바꾸지 않고 `symbol`과 id 필드만 꺼낸다. envelope 클래스(`BinanceEventEnvelope`)는 필드를 실제로 읽는 basis job을 만들 때 `common/`에 둔다.
 
 ### 이유
 
@@ -233,9 +235,13 @@ spotMid.keyBy(SpotMid::symbol)
 
 | 항목 | 값 | 이유 |
 | --- | --- | --- |
-| Flink | 2.2.1 | Kafka 커넥터 최신(5.0.0-2.2)이 맞추는 버전. Operator 1.12 지원 여부는 배포 전에 확인한다 |
-| 배포 | Flink Kubernetes Operator, `FlinkDeployment` (application mode) | job마다 따로 띄우고 따로 재시작 |
-| 로컬 테스트 | MiniCluster (`./gradlew run`) | kind 메모리가 넉넉하지 않아 먼저 로컬에서 확인 |
+| Flink | 2.2.1 (`flink:2.2.1-java17` 이미지) | Kafka 커넥터 최신(5.0.0-2.2)이 맞추는 버전 |
+| 배포 | Flink Kubernetes Operator 1.16.1, `FlinkDeployment` (application mode), namespace `binance-processing` | job마다 따로 띄우고 따로 재시작. 1.16.1은 Flink 2.2(`v2_2`)를 지원한다 |
+| Operator 설치 | webhook 끔 (cert-manager 없음) | 설치할 것과 메모리를 줄인다 ([Infra/Flink-Install/](../Infra/Flink-Install/README.md)) |
+| jar | shadowJar, Flink 본체는 `compileOnly` | Flink 이미지에 있는 것을 다시 넣지 않는다. Kafka 커넥터와 Jackson만 넣는다 |
+| 자원 | JobManager 1024m, TaskManager 1536m, 슬롯 1, managed memory 0.1 | state가 heap에 있어 RocksDB용 managed memory가 거의 필요 없다 |
+| upgradeMode | stateless | 체크포인트 저장소(PV, S3)가 아직 없다. dedup state는 TTL 1분이라 재배포 때 잃어도 영향이 작다 |
+| 테스트 | [flink-test](flink-test/)는 MiniCluster를 pod 하나로 띄움 (Operator 없이) | Operator 없이 빠르게 job 동작만 확인한다 |
 | 체크포인트 | 10초 | 완료될 때 Kafka offset이 커밋된다 |
 | sink 보장 | at-least-once | exactly-once는 Kafka 트랜잭션이 필요하고 읽는 쪽도 `read_committed`로 맞춰야 한다. dedup 결과가 재시작 때 한 번 더 쓰이는 정도는 감수한다 |
 | 병렬도 | 파티션 수(3) 이하 | 파티션보다 많으면 노는 태스크가 생긴다 |
@@ -246,6 +252,7 @@ spotMid.keyBy(SpotMid::symbol)
 
 - **문서 불일치:** [plan/topic/insight_1_plan.md](../plan/topic/insight_1_plan.md)의 dedup 방식이 `keyBy(u)`로 되어 있다. 이 설계안은 `(symbol, u)`다. 어느 쪽으로 맞출지 확인한 뒤 고친다.
 - **순서:** 수집 앱의 `@Async` 스레드풀이 같은 심볼의 메시지 순서를 섞을 수 있다. dedup은 순서와 상관없지만, depth처럼 순서가 중요한 스트림을 Flink에서 이어 붙이려면 수집 쪽부터 고쳐야 한다.
-- **로컬 접속:** Kafka 리스너가 클러스터 안 주소만 알려 줘서, 로컬 Flink와 노트북이 붙으려면 외부 리스너가 필요하다 ([flink-test/README.md](flink-test/README.md)).
-- **Operator 호환:** Flink Kubernetes Operator 1.12가 Flink 2.2를 지원하는지 확인한다.
-- **clean 보존 기간:** `spot.crypto.bookticker`(24h) 외에는 미정이다.
+- **로컬 접속:** Kafka 리스너가 클러스터 안 주소만 알려 줘서, 로컬 노트북(과 로컬에서 돌리는 Flink)이 붙으려면 외부 리스너가 필요하다 ([flink-test/README.md](flink-test/README.md)).
+- **Operator 배포 검증:** 로컬 PC 메모리(WSL 약 8GB)로는 Kafka 브로커 3대와 Operator + JobManager + TaskManager를 함께 올리기 어렵다. 클러스터를 옮긴 뒤 배포와 동작을 확인한다.
+- **체크포인트 저장소:** stateful 업그레이드(`upgradeMode: savepoint`)를 하려면 체크포인트 · savepoint를 남길 PV나 S3가 필요하다.
+- **clean 보존 기간:** `spot.crypto.bookticker`(24h) 외에는 임시로 raw와 같게 두었다.
