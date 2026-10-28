@@ -15,7 +15,7 @@
 | [plan/topic/plan.md](../../plan/topic/plan.md) | 토픽 설계 결정 (토픽 단위, crypto/stock 분리, 이름 규칙, 키·파티션) |
 | [plan/topic/insight_1_plan.md](../../plan/topic/insight_1_plan.md) | Insight 1의 토픽 흐름과 Flink job |
 | [Infra/Kafka/Kafka-Cluster/](../../Infra/Kafka/Kafka-Cluster/) | Strimzi 클러스터, Kafka UI 매니페스트 |
-| [Infra/Kafka/Kafka-Topic/](../../Infra/Kafka/Kafka-Topic/) | `KafkaTopic` yaml (작성 예정) |
+| [Infra/Kafka/Kafka-Topic/](../../Infra/Kafka/Kafka-Topic/) | `KafkaTopic` yaml (raw 10개, clean 9개. stock markprice와 analytics는 예정) |
 | [docs/spring/configuration.md](../spring/configuration.md) | 수집 앱의 Kafka 주소 설정 (local / release 프로파일) |
 
 ## 현재 상태

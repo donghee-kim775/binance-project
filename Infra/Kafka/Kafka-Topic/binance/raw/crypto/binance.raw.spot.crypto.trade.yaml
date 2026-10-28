@@ -1,0 +1,17 @@
+# 수집 원본 — spot-sov pod가 쓴다 (docs/kafka/topics.md)
+# variable-rate(Active-Active)라 pod 2개가 같은 이벤트를 각자 보내 중복이 있다. Flink dedup job이 binance.clean.spot.crypto.trade로 옮긴다
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: binance.raw.spot.crypto.trade   # 토픽 이름과 같게 (소문자 · 숫자 · . 만 쓰는 이름 규칙)
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: binance-cluster     # 이 토픽을 관리할 Kafka 클러스터
+spec:
+  partitions: 3     # 키 = 심볼
+  replicas: 3       # 브로커 3대에 하나씩
+  config:
+    min.insync.replicas: 2       # 브로커 1대 장애까지 쓰기 유지 (producer acks=all과 짝)
+    retention.ms: 604800000      # 7일
+    cleanup.policy: delete       # 시계열 이벤트 — compaction 대상 아님
+    compression.type: zstd       # envelope JSON 압축 (producer compression-type과 같게)

@@ -57,17 +57,17 @@ Flink dedup job이 raw를 읽어 중복을 지우고 쓴다. 파티션 수는 ra
 | 토픽 | 원본 raw | dedup 키 | 파티션 | 보존 |
 | --- | --- | --- | --- | --- |
 | `binance.clean.spot.crypto.bookticker` | `binance.raw.spot.crypto.bookticker` | `u` | 3 | 24h |
-| `binance.clean.spot.crypto.trade` | `binance.raw.spot.crypto.trade` | `t` | 3 | 미정 |
-| `binance.clean.spot.crypto.depth` | `binance.raw.spot.crypto.depth` | `u` | 3 | 미정 |
-| `binance.clean.usdm.crypto.bookticker` | `binance.raw.usdm.crypto.bookticker` | `u` | 3 | 미정 |
-| `binance.clean.usdm.crypto.aggtrade` | `binance.raw.usdm.crypto.aggtrade` | `a` | 3 | 미정 |
-| `binance.clean.usdm.crypto.depth` | `binance.raw.usdm.crypto.depth` | `u` | 3 | 미정 |
-| `binance.clean.usdm.stock.bookticker` | `binance.raw.usdm.stock.bookticker` | `u` | 6 | 미정 |
-| `binance.clean.usdm.stock.aggtrade` | `binance.raw.usdm.stock.aggtrade` | `a` | 6 | 미정 |
-| `binance.clean.usdm.stock.depth` | `binance.raw.usdm.stock.depth` | `u` | 6 | 미정 |
+| `binance.clean.spot.crypto.trade` | `binance.raw.spot.crypto.trade` | `t` | 3 | 7d* |
+| `binance.clean.spot.crypto.depth` | `binance.raw.spot.crypto.depth` | `u` | 3 | 6h* |
+| `binance.clean.usdm.crypto.bookticker` | `binance.raw.usdm.crypto.bookticker` | `u` | 3 | 24h* |
+| `binance.clean.usdm.crypto.aggtrade` | `binance.raw.usdm.crypto.aggtrade` | `a` | 3 | 7d* |
+| `binance.clean.usdm.crypto.depth` | `binance.raw.usdm.crypto.depth` | `u` | 3 | 6h* |
+| `binance.clean.usdm.stock.bookticker` | `binance.raw.usdm.stock.bookticker` | `u` | 6 | 24h* |
+| `binance.clean.usdm.stock.aggtrade` | `binance.raw.usdm.stock.aggtrade` | `a` | 6 | 7d* |
+| `binance.clean.usdm.stock.depth` | `binance.raw.usdm.stock.depth` | `u` | 6 | 6h* |
 
 - markprice는 clean이 없다. fixed-rate pod는 Active-Standby라 중복이 생기지 않아 raw를 바로 읽는다.
-- 보존 기간은 Insight 1이 쓰는 `binance.clean.spot.crypto.bookticker`만 정해졌다. 나머지는 해당 Flink job을 설계할 때 정한다.
+- 보존 기간은 Insight 1이 쓰는 `binance.clean.spot.crypto.bookticker`만 정해졌다. `*` 표시는 임시로 원본 raw와 같게 둔 값이며, 해당 Flink job을 설계할 때 다시 정한다.
 
 ## analytics (1개)
 
@@ -100,7 +100,7 @@ Flink dedup job이 raw를 읽어 중복을 지우고 쓴다. 파티션 수는 ra
 
 ## yaml 위치
 
-토픽은 Strimzi `KafkaTopic`(`kafka.strimzi.io/v1`)으로 만든다. 파일 이름은 토픽 이름과 같게 둔다. 지금은 [binance.raw.usdm.crypto.markprice.yaml](../../Infra/Kafka/Kafka-Topic/binance/raw/crypto/binance.raw.usdm.crypto.markprice.yaml) 하나만 있다.
+토픽은 Strimzi `KafkaTopic`(`kafka.strimzi.io/v1`)으로 만든다. 파일 이름은 토픽 이름과 같게 둔다. 지금 raw 10개(stock markprice 제외)와 clean 9개가 있다. `binance.raw.usdm.stock.markprice`와 analytics는 아직 없다.
 
 ```text
 Infra/Kafka/Kafka-Topic/binance/
