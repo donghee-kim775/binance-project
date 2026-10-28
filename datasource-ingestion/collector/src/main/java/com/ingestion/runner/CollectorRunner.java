@@ -56,6 +56,8 @@ public class CollectorRunner implements ApplicationRunner {
     // 현재 args는 쓰지 않는다. 무엇을 구독할지는 생성자로 주입받은 설정이 정한다
     //  - endpoint     (binance.endpoint.*)     : jar의 application.yml
     //  - subscription (binance.subscription.*) : application.yml 기본값을 K8s ConfigMap이 덮어씀
+    // [호출] SpringApplication.run → callRunners() — 컨텍스트(Bean 생성)가 끝난 뒤 1회
+    // [스레드] main
     @Override
     public void run(ApplicationArguments args) throws InterruptedException {
         // product → 접속 도메인. 설정 키 이름이 달라(usdm ↔ usdm-futures) 여기서 변환한다
@@ -79,15 +81,17 @@ public class CollectorRunner implements ApplicationRunner {
             //  - "usdm-optical-markPrice@1s"
             //  - "spot-sov-bookTicker")
             // parameter 2 : websocket uri
-            // parameter 3 : onMessage callback — 수신 시각은 콜백 스레드에서 바로 찍는다
+            // parameter 3 : MessageHandler — 메시지가 올 때마다 client가 handle(raw)로 이 람다를 부른다
+            //               수신 시각은 콜백 스레드에서 바로 찍는다
             BinanceStreamClient client = new BinanceStreamClient(
                 streamLabel(spec),
                 uri,
+                // [다음] 메시지마다 BinanceStreamClient.onText → messageHandler.handle(raw) → 이 람다 → MarketDataIngestService.onRaw
                 raw -> ingestService.onRaw(spec, raw, System.currentTimeMillis())
             );
 
             clients.add(client);
-            client.connect();
+            client.connect(); // [다음] BinanceStreamClient.connect — 연결은 비동기라 바로 반환
         }
 
         // WebSocket 연결은 비동기라 메인 스레드를 잡아두지 않으면 앱이 바로 종료된다.
@@ -121,8 +125,10 @@ public class CollectorRunner implements ApplicationRunner {
      * 컨텍스트 종료(SIGTERM 등) 시 스프링 부트 종료 훅 스레드에서 호출된다 — run()의
      * CountDownLatch가 영원히 안 풀려도 이 콜백은 별도 스레드라 정상 동작한다.
      */
+    // [호출] 스프링 — 컨텍스트 종료 시 (SIGTERM, Ctrl+C)
+    // [스레드] SpringApplicationShutdownHook
     @PreDestroy
     public void shutdown() {
-        clients.forEach(BinanceStreamClient::close);
+        clients.forEach(BinanceStreamClient::close); // [다음] BinanceStreamClient.close
     }
 }

@@ -25,6 +25,21 @@ Binance WebSocket 시장 데이터를 Kafka로 수집하고 Flink로 분석하�
 - **네임스페이스:** 수집 앱 `binance-ingestion`, Kafka `kafka`
 - 수집 심볼이나 스트림이 바뀌면 `0TickerInfoTable.md`, `deploy/`, `plan/topic/plan.md`, `docs/kafka/topics.md`, README 수집 대상 표를 함께 맞춘다 (`/add-symbol`).
 
+## 코드 주석 규칙 (흐름 추적)
+
+제어가 눈에 보이지 않게 넘어가는 지점에는 한 단계 아래를 따라갈 수 있게 태그 주석을 단다. 기존 설명 주석은 그대로 두고 태그 줄을 덧붙인다.
+
+- `// [호출] <누가> — <언제>`: 우리 코드가 직접 부르지 않는 메서드. JDK·스프링 콜백(`@Override`), `@PostConstruct`·`@PreDestroy`, `ApplicationRunner.run`, `@Bean`
+- `// [다음] <클래스.메서드>`: 이 줄에서 제어가 다른 클래스로 넘어갈 때. 람다나 인터페이스를 거치면 실제로 실행되는 구현 위치까지 적는다
+- `// [스레드] <스레드 이름>`: 실행 스레드가 앞 단계와 다를 때 (`main`, `HttpClient-N-Worker-N`, `ingest-async-N`, `kafka-producer-network-thread`, `SpringApplicationShutdownHook`)
+
+```java
+// [호출] JDK HttpClient — 텍스트 프레임이 올 때마다
+// [스레드] HttpClient-N-Worker-N
+public CompletionStage<?> onText(...) {
+    messageHandler.handle(message); // [다음] CollectorRunner의 람다 → MarketDataIngestService.onRaw
+```
+
 ## 문서 작성 규칙
 
 - 문서는 한국어로 쓴다.
