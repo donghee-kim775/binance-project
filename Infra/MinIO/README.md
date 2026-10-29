@@ -8,6 +8,7 @@ Flink 체크포인트 · savepoint를 저장하는 S3 호환 저장소다. 지�
 | namespace | `binance-storage` (ClickHouse와 같은 저장 계층) |
 | 구성 | StatefulSet 1개, replica 1, PVC 10Gi |
 | 클러스터 안 주소 | `http://minio.binance-storage.svc:9000` (S3 API), 9001 (웹 콘솔) |
+| 클러스터 밖 주소 (NodePort) | `http://<노드 IP>:30901` (웹 콘솔), `http://<노드 IP>:30902` (S3 API) |
 | 계정 | Secret `minio-auth` (`root-user`, `root-password`) |
 | 버킷 | `flink` (Job `minio-create-buckets`가 만든다) |
 | 매니페스트 | [minio.yaml](minio.yaml) |
@@ -25,11 +26,9 @@ kubectl logs -n binance-storage job/minio-create-buckets
 
 Job은 끝나고 10분 뒤 지워진다. 버킷을 다시 만들어야 하면 `kubectl apply`를 다시 하면 된다.
 
-웹 콘솔:
+웹 콘솔은 `http://<노드 IP>:30901` (노드 IP는 `kubectl get nodes -o wide`의 INTERNAL-IP). 로그인은 `minio-auth`의 아이디 · 비밀번호다.
 
-```bash
-kubectl port-forward -n binance-storage svc/minio 9001:9001   # http://localhost:9001
-```
+PC에서 `mc`로 붙을 때는 S3 API 포트를 쓴다: `mc alias set binance http://<노드 IP>:30902 <아이디> <비밀번호>`.
 
 ## Flink에서 쓰기 (다음 단계, 아직 적용 안 함)
 
@@ -66,6 +65,7 @@ spec:
 ## 설정 이유
 
 - **pod마다 PV · PVC:** StatefulSet의 `volumeClaimTemplates`가 pod마다 PVC를 하나씩 만든다 (`data-minio-0`). PV는 클러스터 기본 StorageClass가 PVC에 맞춰 자동으로 만든다. pod가 다시 떠도 같은 이름(`minio-0`)이라 같은 PVC에 다시 붙는다. 확인: `kubectl get pvc,pv -n binance-storage`.
+- **NodePort로 연다:** PC에서 콘솔과 `mc`로 바로 붙으려고 연다. Flink는 클러스터 안 주소(`minio.binance-storage.svc:9000`)를 그대로 쓴다. 포트는 kafka-ui(30080), ClickHouse(30123, 30900)와 겹치지 않게 30901 · 30902를 쓴다.
 - **Operator 대신 StatefulSet:** 체크포인트 저장소 하나라 분산 모드(노드 4개 이상, erasure coding)가 필요 없다. 단일 노드 · 단일 디스크로 띄운다.
 - **이미지 태그 고정:** MinIO는 2025년에 커뮤니티 이미지 · 바이너리 배포를 멈췄다. `latest`는 더 이상 갱신되지 않으므로 태그를 고정한다. 이 태그가 받아지지 않으면 Docker Hub에서 남아 있는 마지막 `RELEASE.*` 태그로 바꾼다. 이 버전부터 웹 콘솔은 파일 보기 위주로 줄었다 (사용자 · 정책 관리는 `mc`로 한다).
 - **계정은 Secret으로 따로:** 매니페스트를 git에 올리므로 계정을 파일에 두지 않는다.

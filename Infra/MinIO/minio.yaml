@@ -9,21 +9,25 @@ metadata:
   name: binance-storage
 ---
 # 클러스터 안에서 접속하는 주소: minio.binance-storage.svc (S3 API 9000, 웹 콘솔 9001)
+# 클러스터 밖(PC)에서는 <노드 IP>:30901 (웹 콘솔), <노드 IP>:30902 (S3 API, mc 등)
 apiVersion: v1
 kind: Service
 metadata:
   name: minio
   namespace: binance-storage
 spec:
+  type: NodePort
   selector:
     app: minio
   ports:
     - name: api
       port: 9000
       targetPort: 9000
+      nodePort: 30902
     - name: console
       port: 9001
       targetPort: 9001
+      nodePort: 30901
 ---
 apiVersion: apps/v1
 kind: StatefulSet
