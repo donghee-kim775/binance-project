@@ -1,0 +1,122 @@
+# MinIO 단일 노드. Flink 체크포인트 · savepoint 저장소 (S3 호환). 설치 방법과 설정 이유는 README.md
+#
+# 계정은 이 파일에 두지 않는다. 먼저 Secret을 만든다:
+#   kubectl create secret generic minio-auth -n binance-storage \
+#     --from-literal=root-user='<아이디>' --from-literal=root-password='<비밀번호 8자 이상>'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: binance-storage
+---
+# 클러스터 안에서 접속하는 주소: minio.binance-storage.svc (S3 API 9000, 웹 콘솔 9001)
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: binance-storage
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: binance-storage
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          # MinIO는 커뮤니티 이미지 배포를 멈췄다. 마지막으로 받을 수 있는 태그로 고정한다 (README.md)
+          image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+          args: [server, /data, --console-address, ":9001"]
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-password
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  # pod가 다시 떠도 체크포인트가 남게 PVC에 둔다. storageClassName을 비워 클러스터 기본 StorageClass를 쓴다
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# Flink가 쓸 버킷을 만든다. MinIO가 뜰 때까지 기다렸다가 한 번 실행하고 끝난다 (이미 있으면 넘어간다)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-buckets
+  namespace: binance-storage
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/minio:RELEASE.2025-04-22T22-12-26Z   # mc가 들어 있다
+          command: [/bin/sh, -c]
+          args:
+            - |
+              until mc alias set local http://minio.binance-storage.svc:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                echo "MinIO 대기 중"; sleep 3
+              done
+              mc mb --ignore-existing local/flink
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-password
