@@ -2,7 +2,7 @@
 # job마다 main 클래스가 하나이고, 어떤 job을 실행할지는 FlinkDeployment의 entryClass가 정한다 (지금은 dedup job만 있다).
 #
 # 빌드 (consumer/flink-app/ 에서):
-#   docker build -t flink-app:0.0.1 .
+#   docker build -t kimdonghee125/flink-app:0.0.2 .
 
 # ── 1. build ─────────────────────────────────────────────
 FROM eclipse-temurin:17-jdk AS build

@@ -1,7 +1,5 @@
 package com.consumer.dedup;
 
-import java.util.List;
-
 /**
  * raw 토픽 하나를 dedup해서 clean 토픽 하나에 쓰는 경로.
  *
@@ -13,24 +11,20 @@ import java.util.List;
 public record DedupRoute(String name, String rawTopic, String cleanTopic, String idField) {
 
     /**
-     * 지금 수집하는 variable-rate 스트림 전부 (docs/kafka/topics.md "clean").
-     * markprice는 fixed-rate(Active-Standby)라 중복이 없어 경로가 없다.
-     * 스트림이 늘면 여기에 한 줄 추가하고, raw · clean 토픽 yaml을 같이 만든다.
+     * job 인자 하나를 경로로 바꾼다. 형식: {@code <product>.<자산종류>.<스트림>:<id 필드>} (예: spot.crypto.trade:t)
+     * 경로 목록은 deploy/dedup.yaml의 job.args에 있다.
      */
-    public static final List<DedupRoute> ALL = List.of(
-            route("spot", "crypto", "bookticker", "u"),
-            route("spot", "crypto", "trade", "t"),
-            route("spot", "crypto", "depth", "u"),
-            route("usdm", "crypto", "bookticker", "u"),
-            route("usdm", "crypto", "aggtrade", "a"),
-            route("usdm", "crypto", "depth", "u"),
-            route("usdm", "stock", "bookticker", "u"),
-            route("usdm", "stock", "aggtrade", "a"),
-            route("usdm", "stock", "depth", "u"));
+    public static DedupRoute parse(String arg) {
+        String[] parts = arg.split(":");
+        if (parts.length != 2 || parts[0].split("\\.").length != 3 || parts[1].isBlank()) {
+            throw new IllegalArgumentException(
+                    "경로 인자 형식은 <product>.<자산종류>.<스트림>:<id 필드> 이다 (예: spot.crypto.trade:t): " + arg);
+        }
+        return route(parts[0], parts[1]);
+    }
 
     /** 토픽 이름 규칙 binance.<raw|clean>.<product>.<자산종류>.<스트림> 으로 raw · clean 쌍을 만든다 */
-    private static DedupRoute route(String product, String assetClass, String stream, String idField) {
-        String suffix = product + "." + assetClass + "." + stream;
+    private static DedupRoute route(String suffix, String idField) {
         return new DedupRoute(suffix, "binance.raw." + suffix, "binance.clean." + suffix, idField);
     }
 }

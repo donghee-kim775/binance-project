@@ -18,7 +18,7 @@ flink-app/
     ├── common/KafkaIO.java           # KafkaSource / KafkaSink 공통 생성 (모든 job이 같이 쓴다)
     └── dedup/
         ├── DedupJob.java             # main(): 경로마다 source → parse → dedup → sink
-        ├── DedupRoute.java           # raw → clean 경로 목록 (9개)
+        ├── DedupRoute.java           # job 인자 → raw · clean 경로 (경로 목록은 deploy/dedup.yaml)
         ├── DedupKeyParser.java       # envelope → (symbol, id, JSON)
         └── DedupFunction.java        # (symbol, id)가 처음이면 통과
 ```
@@ -37,7 +37,7 @@ flink-app/
 | `binance.raw.usdm.stock.aggtrade` | `binance.clean.usdm.stock.aggtrade` | `(symbol, a)` |
 | `binance.raw.usdm.stock.depth` | `binance.clean.usdm.stock.depth` | `(symbol, u)` |
 
-경로를 추가하려면 [DedupRoute.java](src/main/java/com/consumer/dedup/DedupRoute.java)의 `ALL`에 한 줄 넣고, raw · clean 토픽 yaml을 [Infra/Kafka/Kafka-Topic/](../../Infra/Kafka/Kafka-Topic/)에 만든다.
+경로를 추가하려면 [deploy/dedup.yaml](deploy/dedup.yaml)의 `job.args`에 `<product>.<자산종류>.<스트림>:<id 필드>` 한 줄을 넣고, raw · clean 토픽 yaml을 [Infra/Kafka/Kafka-Topic/](../../Infra/Kafka/Kafka-Topic/)에 만든다.
 
 ## 실행 (Flink Operator)
 
@@ -49,8 +49,8 @@ kubectl apply -f Infra/Kafka/Kafka-Topic/binance/raw/crypto -f Infra/Kafka/Kafka
               -f Infra/Kafka/Kafka-Topic/binance/clean/crypto -f Infra/Kafka/Kafka-Topic/binance/clean/stock
 
 # 이미지 · 배포 (consumer/flink-app/ 에서)
-docker build -t kimdonghee125/flink-app:0.0.1 .
-docker push kimdonghee125/flink-app:0.0.1
+docker build -t kimdonghee125/flink-app:0.0.2 .
+docker push kimdonghee125/flink-app:0.0.2
 kubectl apply -f deploy/dedup.yaml
 
 kubectl get flinkdeployment -n binance-processing        # JOB STATUS = RUNNING
@@ -59,7 +59,7 @@ kubectl logs -n binance-processing deploy/flink-dedup -f # JobManager 로그
 ```
 
 - jar는 `./gradlew shadowJar`로 만든다 (`build/libs/flink-app.jar`). Flink 본체(`flink-streaming-java`, `flink-connector-base`)는 Flink 이미지에 있어 `compileOnly`로 두고, Kafka 커넥터와 Jackson만 jar에 넣는다.
-- 코드를 고친 뒤에는 이미지 태그를 올려(`0.0.2`) 빌드 · load하고 `deploy/dedup.yaml`의 `image`를 바꿔 apply한다. 태그가 같으면 Operator가 바뀐 것을 모른다.
+- 코드를 고친 뒤에는 이미지 태그를 올려(예: `0.0.3`) 빌드 · push하고 `deploy/dedup.yaml`의 `image`를 바꿔 apply한다. 태그가 같으면 Operator가 바뀐 것을 모른다.
 - Kafka에는 클러스터 안 주소(`binance-cluster-kafka-bootstrap.binancekafka.svc:9092`)로 붙는다.
 - [flink-test](../flink-test/)의 Deployment와 **같이 띄우지 않는다.** 둘 다 `binance.clean.spot.crypto.bookticker`에 써서 clean에 중복이 생긴다.
 

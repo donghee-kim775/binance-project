@@ -1,7 +1,7 @@
 # Flink dedup job — raw 9개 → clean 9개 (consumer/flink-design.md)
 # Flink Operator가 이 리소스를 보고 JobManager · TaskManager pod를 띄우고 job을 제출한다.
-#   docker build -t kimdonghee125/flink-app:0.0.1 .          (consumer/flink-app/ 에서)
-#   docker push kimdonghee125/flink-app:0.0.1
+#   docker build -t kimdonghee125/flink-app:0.0.2 .          (consumer/flink-app/ 에서)
+#   docker push kimdonghee125/flink-app:0.0.2
 #   kubectl apply -f deploy/dedup.yaml
 apiVersion: v1
 kind: Namespace
@@ -14,7 +14,7 @@ metadata:
   name: flink-dedup
   namespace: binance-processing
 spec:
-  image: kimdonghee125/flink-app:0.0.1
+  image: kimdonghee125/flink-app:0.0.2
   imagePullPolicy: IfNotPresent   # Docker Hub(kimdonghee125)에서 받는다. 태그를 올려서 배포한다
   flinkVersion: v2_2
   # Operator 설치(helm) 때 이 namespace에 만들어지는 서비스 계정. JobManager가 TaskManager pod를 만들 때 쓴다
@@ -50,3 +50,16 @@ spec:
     # stateless: 업그레이드 · 재배포 때 state(본 키 목록) 없이 새로 시작하고, 컨슈머 그룹에 커밋된 offset부터 읽는다.
     # 체크포인트를 남길 저장소(PV, S3 등)가 아직 없어서다. dedup state는 TTL 1분이라 잃어도 영향이 작다
     upgradeMode: stateless
+    # dedup 경로 = <product>.<자산종류>.<스트림>:<id 필드>. raw · clean 토픽 이름은 binance.<raw|clean>.<경로>로 만든다.
+    # markprice는 fixed-rate(Active-Standby)라 중복이 없어 경로가 없다.
+    # 스트림이 늘면 여기에 한 줄 추가하고, raw · clean 토픽 yaml을 같이 만든다 (이미지 재빌드 불필요)
+    args:
+      - spot.crypto.bookticker:u
+      - spot.crypto.trade:t
+      - spot.crypto.depth:u
+      - usdm.crypto.bookticker:u
+      - usdm.crypto.aggtrade:a
+      - usdm.crypto.depth:u
+      - usdm.stock.bookticker:u
+      - usdm.stock.aggtrade:a
+      - usdm.stock.depth:u

@@ -28,8 +28,12 @@ public class DedupJob {
         env.enableCheckpointing(10_000);
         env.setParallelism(1);
 
-        for (DedupRoute route : DedupRoute.ALL) {
-            addRoute(env, route);
+        // 경로 목록은 job 인자로 받는다 (deploy/dedup.yaml의 job.args). 바꾸면 Operator가 job을 다시 띄운다
+        if (args.length == 0) {
+            throw new IllegalArgumentException("경로 인자가 없다. deploy/dedup.yaml의 job.args를 확인한다");
+        }
+        for (String arg : args) {
+            addRoute(env, DedupRoute.parse(arg));
         }
 
         env.execute("dedup");
