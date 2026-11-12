@@ -223,9 +223,19 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 | | [settings.md](docs/kafka/settings.md) | 현재 클러스터 구성과 설정 이유, 우려 지점 (디스크, 단일 PC, 수집 구간 유실 등) |
 | | [kafkaTopicsREADME.md](docs/kafka/kafkaTopicsREADME.md) | 초기 토픽 설계 초안과 조인 아이디어 (현재 토픽 설계는 [topic/plan.md](plan/topic/plan.md)) |
 | `notes/` | [collectorInsightsREADME.md](docs/notes/collectorInsightsREADME.md) | 시장별 스키마 차이, 토픽/키 설계 시 주의점 |
+| | [flinkDedupCodeReadingREADME.md](docs/notes/flinkDedupCodeReadingREADME.md) | Flink dedup job 코드 읽는 순서 (yaml → main → 레코드 흐름) |
 | `spring/` | [configuration.md](docs/spring/configuration.md) | 설정 출처와 탐색 순서, 프로파일(local/release), 환경변수 이름 규칙, 코드에서 값 받는 법 |
 
 [docs/streams/poc/](docs/streams/poc/)에는 각 시장 WebSocket을 실제로 연결해본 검증용 Jupyter 노트북이 있다.
+
+## Study
+
+프로젝트를 진행하면서 공부한 내용을 Notion에 정리했다. 저장소의 설계 문서(`plan/`, `docs/`)는 결정과 근거를, Notion은 그 바탕이 된 개념 학습을 다룬다.
+
+| 주제 | 노트 | 내용 |
+| --- | --- | --- |
+| Apache Flink | [Apache Flink (Notion)](https://youthful-yew-08d.notion.site/Apache-Flink-3e05c4826975802a96a2e90866f8a8ad) | Flink 개념과 동작 공부 정리 |
+| Binance | [Binance project (Notion)](https://youthful-yew-08d.notion.site/Binance-project-3c55c4826975807994bded2381a86c0b) | Binance 시장 · API · WebSocket 공부 정리 |
 
 ## Insights
 
