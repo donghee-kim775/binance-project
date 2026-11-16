@@ -23,12 +23,12 @@ data:
           - stream: bookTicker
             route-prefix: ""
             topic: binance.raw.spot.crypto.bookticker
-          - stream: trade
-            route-prefix: ""
-            topic: binance.raw.spot.crypto.trade
-          - stream: depth@100ms
-            route-prefix: ""
-            topic: binance.raw.spot.crypto.depth
+          # - stream: trade
+          #   route-prefix: ""
+          #   topic: binance.raw.spot.crypto.trade
+          # - stream: depth@100ms
+          #   route-prefix: ""
+          #   topic: binance.raw.spot.crypto.depth
 ---
 apiVersion: apps/v1
 kind: Deployment
