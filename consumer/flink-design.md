@@ -240,9 +240,11 @@ spotMid.keyBy(SpotMid::symbol)
 | Operator 설치 | webhook 끔 (cert-manager 없음) | 설치할 것과 메모리를 줄인다 ([Infra/Flink-Install/](../Infra/Flink-Install/README.md)) |
 | jar | shadowJar, Flink 본체는 `compileOnly` | Flink 이미지에 있는 것을 다시 넣지 않는다. Kafka 커넥터와 Jackson만 넣는다 |
 | 자원 | JobManager 1024m, TaskManager 1536m, 슬롯 1, managed memory 0.1 | state가 heap에 있어 RocksDB용 managed memory가 거의 필요 없다 |
-| upgradeMode | stateless | 체크포인트 저장소(PV, S3)가 아직 없다. dedup state는 TTL 1분이라 재배포 때 잃어도 영향이 작다 |
+| JobManager HA | `high-availability.type: kubernetes`, storageDir는 MinIO, `jobManager.replicas: 1` | JobManager가 마지막 체크포인트 위치를 메모리에만 들고 있으면 pod가 다시 뜰 때 잃는다. HA가 ConfigMap과 MinIO에 남겨 이어받게 한다. standby(replicas 2)는 복구를 몇십 초 줄이는 대신 1Gi를 더 써서 아직 두지 않는다 |
+| upgradeMode | savepoint | 재배포 때 Operator가 savepoint를 찍고 새 job이 거기서 시작해 state와 offset이 이어진다 |
+| 체크포인트 저장소 | MinIO `s3://binance/checkpoints/flink-dedup`, savepoint는 `s3://binance/savepoints/flink-dedup` | 경로 · 주소 · 계정은 `dedup.yaml`의 `flinkConfiguration`과 env에, 간격 · timeout · 보관 정책도 같은 `flinkConfiguration`에 둔다. Operator가 savepoint 경로를 `flinkConfiguration`에서 읽고, 값을 바꿀 때 이미지를 다시 빌드하지 않기 위해서다 ([Infra/MinIO/](../Infra/MinIO/README.md)) |
 | 테스트 | [flink-test](flink-test/)는 MiniCluster를 pod 하나로 띄움 (Operator 없이) | Operator 없이 빠르게 job 동작만 확인한다 |
-| 체크포인트 | 10초 | 완료될 때 Kafka offset이 커밋된다 |
+| 체크포인트 | 10초, timeout 60초, 최소 간격 5초, 연속 실패 3번까지 허용, 취소해도 마지막 체크포인트 보관 | 완료될 때 Kafka offset이 커밋된다 |
 | sink 보장 | at-least-once | exactly-once는 Kafka 트랜잭션이 필요하고 읽는 쪽도 `read_committed`로 맞춰야 한다. dedup 결과가 재시작 때 한 번 더 쓰이는 정도는 감수한다 |
 | 병렬도 | 파티션 수(3) 이하 | 파티션보다 많으면 노는 태스크가 생긴다 |
 
@@ -254,5 +256,5 @@ spotMid.keyBy(SpotMid::symbol)
 - **순서:** 수집 앱의 `@Async` 스레드풀이 같은 심볼의 메시지 순서를 섞을 수 있다. dedup은 순서와 상관없지만, depth처럼 순서가 중요한 스트림을 Flink에서 이어 붙이려면 수집 쪽부터 고쳐야 한다.
 - **로컬 접속:** Kafka 리스너가 클러스터 안 주소만 알려 줘서, 로컬 노트북(과 로컬에서 돌리는 Flink)이 붙으려면 외부 리스너가 필요하다 ([flink-test/README.md](flink-test/README.md)).
 - **Operator 배포 검증:** 로컬 PC 메모리(WSL 약 8GB)로는 Kafka 브로커 3대와 Operator + JobManager + TaskManager를 함께 올리기 어렵다. 클러스터를 옮긴 뒤 배포와 동작을 확인한다.
-- **체크포인트 저장소:** stateful 업그레이드(`upgradeMode: savepoint`)를 하려면 체크포인트 · savepoint를 남길 PV나 S3가 필요하다.
+- **체크포인트 저장소 검증:** MinIO 설정과 `upgradeMode: savepoint`를 넣었다. 배포 후 Web UI Checkpoints 탭과 MinIO `binance` 버킷에 체크포인트가 생기는지, 이미지 태그를 올려 재배포했을 때 savepoint에서 시작하는지 확인한다.
 - **clean 보존 기간:** `spot.crypto.bookticker`(24h) 외에는 임시로 raw와 같게 두었다.

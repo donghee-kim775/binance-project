@@ -1,6 +1,6 @@
 # MinIO
 
-Flink 체크포인트 · savepoint를 저장하는 S3 호환 저장소다. 지금 dedup job은 체크포인트를 남길 곳이 없어 `upgradeMode: stateless`로 돌고 있다 ([consumer/flink-app/README.md](../../consumer/flink-app/README.md)). MinIO가 생기면 재배포 · 장애 때 state(본 키 목록)와 Kafka offset을 체크포인트에서 이어받을 수 있다.
+Flink 체크포인트 · savepoint를 저장하는 S3 호환 저장소다. dedup job이 여기에 체크포인트 · savepoint를 남기고 `upgradeMode: savepoint`로 재배포 · 장애 때 state(본 키 목록)와 Kafka offset을 이어받는다 ([consumer/flink-app/deploy/dedup.yaml](../../consumer/flink-app/deploy/dedup.yaml)).
 
 | 항목 | 값 |
 | --- | --- |
@@ -10,7 +10,7 @@ Flink 체크포인트 · savepoint를 저장하는 S3 호환 저장소다. 지�
 | 클러스터 안 주소 | `http://minio.binance-storage.svc:9000` (S3 API), 9001 (웹 콘솔) |
 | 클러스터 밖 주소 (NodePort) | `http://<노드 IP>:30901` (웹 콘솔), `http://<노드 IP>:30902` (S3 API) |
 | 계정 | Secret `minio-auth` (`root-user`, `root-password`) |
-| 버킷 | `flink` (Job `minio-create-buckets`가 만든다) |
+| 버킷 | `binance` (Job `minio-create-buckets`가 만든다). 안에서 용도 · job별로 경로를 나눈다: `checkpoints/`, `savepoints/`, `ha/` |
 | 매니페스트 | [minio.yaml](minio.yaml) |
 
 ## 설치
@@ -30,17 +30,17 @@ Job은 끝나고 10분 뒤 지워진다. 버킷을 다시 만들어야 하면 `k
 
 PC에서 `mc`로 붙을 때는 S3 API 포트를 쓴다: `mc alias set binance http://<노드 IP>:30902 <아이디> <비밀번호>`.
 
-## Flink에서 쓰기 (다음 단계, 아직 적용 안 함)
+## Flink에서 쓰기 (dedup.yaml에 적용, 배포 검증 전)
 
-체크포인트 경로는 job마다 나눈다: `s3://flink/checkpoints/<job 이름>`, `s3://flink/savepoints/<job 이름>`.
+경로는 job마다 나눈다: `s3://binance/checkpoints/<job 이름>`, `s3://binance/savepoints/<job 이름>`, `s3://binance/ha/<job 이름>` (JobManager HA).
 
 `consumer/flink-app/deploy/dedup.yaml`에 넣을 것:
 
 ```yaml
 spec:
   flinkConfiguration:
-    execution.checkpointing.dir: s3://flink/checkpoints/flink-dedup
-    execution.checkpointing.savepoint-dir: s3://flink/savepoints/flink-dedup
+    execution.checkpointing.dir: s3://binance/checkpoints/flink-dedup
+    execution.checkpointing.savepoint-dir: s3://binance/savepoints/flink-dedup
     s3.endpoint: http://minio.binance-storage.svc:9000
     s3.path.style.access: "true"          # MinIO는 버킷을 도메인이 아니라 경로로 찾는다
   podTemplate:
@@ -60,7 +60,7 @@ spec:
 
 - **Secret은 namespace마다 따로다.** Flink job은 `binance-processing`에 있으므로 `minio-auth`를 거기에도 만든다.
 - 계정을 환경 변수로 넘겨 `flinkConfiguration`(git에 올라가는 파일)에 키가 남지 않게 한다. S3 플러그인(hadoop)은 `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY`를 읽는다.
-- 실제로 체크포인트가 쓰이는지는 적용할 때 Flink Web UI의 Checkpoints 탭과 MinIO 콘솔의 `flink` 버킷으로 확인한다.
+- 실제로 체크포인트가 쓰이는지는 적용할 때 Flink Web UI의 Checkpoints 탭과 MinIO 콘솔의 `binance` 버킷으로 확인한다.
 
 ## 설정 이유
 
@@ -86,5 +86,5 @@ spec:
 
 - 노드마다 드라이브는 1개다. 드라이브(PVC)가 3개 이상 사라지면 체크포인트도 사라진다. 그때는 job이 Kafka 컨슈머 그룹의 커밋된 offset부터 다시 읽는다.
 - 노드가 4대뿐이라 노드 하나가 고장 나 오래 빠지면 대신 띄울 곳이 없다. 그동안은 3/4로 돌고, 하나가 더 빠지면 쓰기가 멈춘다.
-- Flink도 root 계정을 쓴다. 나중에 `flink` 버킷만 쓸 수 있는 사용자를 `mc admin user add`로 만든다.
+- Flink도 root 계정을 쓴다. 나중에 `binance` 버킷만 쓸 수 있는 사용자를 `mc admin user add`로 만든다.
 - 오래된 체크포인트 정리는 Flink가 한다 (기본으로 최근 1개만 남긴다). savepoint는 직접 지운다.

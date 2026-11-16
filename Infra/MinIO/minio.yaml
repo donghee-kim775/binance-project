@@ -124,7 +124,7 @@ spec:
           requests:
             storage: 10Gi
 ---
-# Flink가 쓸 버킷을 만든다. MinIO가 뜰 때까지 기다렸다가 한 번 실행하고 끝난다 (이미 있으면 넘어간다)
+# 버킷 binance를 만든다 (Flink 체크포인트 · savepoint · HA 기록). MinIO가 뜰 때까지 기다렸다가 한 번 실행하고 끝난다 (이미 있으면 넘어간다)
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -145,7 +145,7 @@ spec:
               until mc alias set local http://minio.binance-storage.svc:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
                 echo "MinIO 대기 중"; sleep 3
               done
-              mc mb --ignore-existing local/flink
+              mc mb --ignore-existing local/binance
           env:
             - name: MINIO_ROOT_USER
               valueFrom:

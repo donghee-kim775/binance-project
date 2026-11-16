@@ -49,8 +49,8 @@ kubectl apply -f Infra/Kafka/Kafka-Topic/binance/raw/crypto -f Infra/Kafka/Kafka
               -f Infra/Kafka/Kafka-Topic/binance/clean/crypto -f Infra/Kafka/Kafka-Topic/binance/clean/stock
 
 # 이미지 · 배포 (consumer/flink-app/ 에서)
-docker build -t kimdonghee125/flink-app:0.0.2 .
-docker push kimdonghee125/flink-app:0.0.2
+docker build -t kimdonghee125/flink-app:0.0.3 .
+docker push kimdonghee125/flink-app:0.0.3
 kubectl apply -f deploy/dedup.yaml
 
 kubectl get flinkdeployment -n binance-processing        # JOB STATUS = RUNNING
@@ -90,6 +90,5 @@ pod-a가 보낸 것 한 건만 `dedup_time`이 붙어 나오면 정상이다. Fl
 ## 지금 단순화한 것
 
 - 병렬도 1, TaskManager 1개.
-- `upgradeMode: stateless`. 체크포인트를 남길 저장소(PV, S3)가 없어서, 재배포하면 state(본 키 목록)는 사라지고 컨슈머 그룹 `flink-dedup`에 커밋된 offset부터 다시 읽는다. state TTL이 1분이라 영향은 재배포 직후 1분 안의 중복 몇 건이다.
-- 경로 목록은 코드에 있다. 경로를 바꾸려면 이미지를 다시 빌드한다.
+- 체크포인트 · savepoint는 MinIO(`s3://binance/...`)에 남고 `upgradeMode: savepoint`로 재배포 때 state를 이어받는다. MinIO가 내려가 있으면 체크포인트가 실패하고, 연속 3번 실패하면 job이 재시작한다. 배포 전에 `binance-processing`에도 Secret `minio-auth`를 만든다 ([deploy/dedup.yaml](deploy/dedup.yaml) 맨 위).
 - sink는 at-least-once다.
