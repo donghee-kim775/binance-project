@@ -99,7 +99,7 @@ Windows에서는 `gradlew.bat bootRun`을 쓴다.
 ```
 
 - 메시지마다 Kafka로 발행한다. 발행 결과(파티션, 오프셋)는 `LOGGING_LEVEL_COM_INGESTION=DEBUG`일 때 `[kafka] sent ...`로 찍히고, 실패하면 `[kafka] send failed`가 ERROR로 찍힌다.
-- **로컬 실행은 Kafka가 필요하다.** `local` 프로파일은 `localhost:9092`에 붙는데, kind의 Kafka는 클러스터 내부 리스너뿐이라 port-forward만으로는 붙지 않는다 ([docs/kafka/settings.md](../../docs/kafka/settings.md) 4.4). Kafka 없이 띄우면 발행이 메타데이터 대기(`max.block.ms`, 60초)에 걸려 `send failed`가 계속 찍힌다. 실제 발행 확인은 kind에 pod로 띄워서 한다.
+- **로컬 실행은 Kafka가 필요하다.** `local` 프로파일은 `localhost:9092`에 붙는데, 클러스터의 Kafka는 내부 리스너뿐이라 port-forward만으로는 붙지 않는다 ([docs/kafka/settings.md](../../docs/kafka/settings.md) 4.4). Kafka 없이 띄우면 발행이 메타데이터 대기(`max.block.ms`, 60초)에 걸려 `send failed`가 계속 찍힌다. 실제 발행 확인은 클러스터에 pod로 띄워서 한다.
 
 - Spot bookTicker는 원본에 이벤트 시각(`E`)이 없어서 `event_time=null`로 찍힌다 (정상).
 - 섹터 설정(심볼 여러 개)으로 띄우면 소켓 하나에서 여러 심볼이 섞여 오고, 키도 심볼별로 나뉜다

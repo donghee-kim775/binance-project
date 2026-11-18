@@ -11,7 +11,9 @@
 5. clean   KafkaSink            (clean 토픽에 쓰기)
 ```
 
-기준 환경은 지금의 [deploy/dedup.yaml](../../consumer/flink-app/deploy/dedup.yaml)이다: 경로 1개(`spot.crypto.bookticker:u`), `parallelism: 1`, TaskManager 1개, 슬롯 1개, state backend hashmap(기본값), raw 토픽 파티션 3개.
+기준 환경은 경로 1개(`spot.crypto.bookticker:u`), `parallelism: 1`, TaskManager 1개, 슬롯 1개, state backend hashmap(기본값), raw 토픽 파티션 3개다.
+
+> **지금 배포와 다른 점:** 이 노트는 흐름을 따라가기 쉽게 병렬도 1로 설명한다. 실제 배포는 `DedupJob`이 연산자마다 병렬도를 정해 raw · parse 3, dedup · sink 2이고, 슬롯이 1개라 TaskManager가 3개 뜬다. 병렬도가 늘면 subtask와 스레드가 그만큼 늘고, keyBy 셔플이 subtask 사이 네트워크를 타며, 체크포인트 barrier가 여러 입력 채널에서 정렬(alignment)된다 (6절 끝).
 
 ---
 

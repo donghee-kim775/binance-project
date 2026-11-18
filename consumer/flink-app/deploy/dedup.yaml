@@ -21,7 +21,7 @@ spec:
 
   # ConfigMap -> /opt/flink/conf/config.yaml -> env getExecutionEnvironment()
   flinkConfiguration:
-    taskmanager.numberOfTaskSlots: "1"          # 슬롯 수 = 병렬도
+    taskmanager.numberOfTaskSlots: "1"          # TaskManager 하나의 슬롯 수. 가장 큰 병렬도(3)만큼 슬롯이 필요해 TaskManager 3개가 뜬다
     taskmanager.memory.managed.fraction: "0.1"  # state가 heap이라 managed memory는 거의 안 씀
 
     # 체크포인트 동작 (바꾸면 apply만, 이미지 재빌드 불필요)
@@ -80,7 +80,7 @@ spec:
   job:
     jarURI: local:///opt/flink/usrlib/flink-app.jar   # 이미지 안의 경로 (Dockerfile)
     entryClass: com.consumer.dedup.DedupJob
-    parallelism: 1
+    parallelism: 1           # 기본값일 뿐. DedupJob이 연산자마다 setParallelism(raw·parse 3, dedup·sink 2)을 해서 코드 값이 쓰인다
     upgradeMode: savepoint   # 재배포 때 savepoint로 state · offset을 이어받음 (uid 고정 필요)
     # 경로 = <product>.<자산종류>.<스트림>:<id 필드> → binance.<raw|clean>.<경로>
     # 추가할 때는 raw · clean 토픽도 같이 만든다. markprice는 중복이 없어 제외

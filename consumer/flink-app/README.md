@@ -54,7 +54,7 @@ docker push kimdonghee125/flink-app:0.0.3
 kubectl apply -f deploy/dedup.yaml
 
 kubectl get flinkdeployment -n binance-processing        # JOB STATUS = RUNNING
-kubectl get pods -n binance-processing                   # JobManager 1개 + TaskManager 1개
+kubectl get pods -n binance-processing                   # JobManager 1개 + TaskManager 3개 (가장 큰 병렬도 3 ÷ 슬롯 1)
 kubectl logs -n binance-processing deploy/flink-dedup -f # JobManager 로그
 ```
 
@@ -63,13 +63,13 @@ kubectl logs -n binance-processing deploy/flink-dedup -f # JobManager 로그
 - Kafka에는 클러스터 안 주소(`binance-cluster-kafka-bootstrap.binancekafka.svc:9092`)로 붙는다.
 - [flink-test](../flink-test/)의 Deployment와 **같이 띄우지 않는다.** 둘 다 `binance.clean.spot.crypto.bookticker`에 써서 clean에 중복이 생긴다.
 
-### 클러스터를 옮길 때
+### 실행 환경
 
-| 바꿀 곳 | kind | 다른 클러스터 |
+| 항목 | 지금 (노드 4대) | 예전 kind |
 | --- | --- | --- |
-| 이미지 전달 | `kind load docker-image` | 레지스트리에 push하고 `deploy/dedup.yaml`의 `image`를 레지스트리 주소로, `imagePullPolicy`는 그대로 또는 `Always` |
-| Kafka 주소 | `binance-cluster-kafka-bootstrap.binancekafka.svc:9092` | Kafka가 같은 클러스터 `binancekafka` namespace에 있으면 그대로 |
-| 메모리 | job 하나에 JobManager 1Gi + TaskManager 1.5Gi | 노드 여유가 있으면 `taskManager.resource.memory`를 늘린다 |
+| 이미지 전달 | Docker Hub `kimdonghee125/flink-app`에 push, `imagePullPolicy: IfNotPresent`라 태그를 올려야 새로 받는다 | `kind load docker-image` |
+| Kafka 주소 | `binance-cluster-kafka-bootstrap.binancekafka.svc:9092` | 같음 |
+| 메모리 | job 하나에 JobManager 1Gi + TaskManager 1.5Gi × 3 (약 5.5Gi) | 노드 여유가 있으면 `taskManager.resource.memory`를 늘린다 |
 
 ## 동작 확인
 
@@ -89,6 +89,6 @@ pod-a가 보낸 것 한 건만 `dedup_time`이 붙어 나오면 정상이다. Fl
 
 ## 지금 단순화한 것
 
-- 병렬도 1, TaskManager 1개.
-- 체크포인트 · savepoint는 MinIO(`s3://binance/...`)에 남고 `upgradeMode: savepoint`로 재배포 때 state를 이어받는다. MinIO가 내려가 있으면 체크포인트가 실패하고, 연속 3번 실패하면 job이 재시작한다. 배포 전에 `binance-processing`에도 Secret `minio-auth`를 만든다 ([deploy/dedup.yaml](deploy/dedup.yaml) 맨 위).
+- 병렬도는 코드(`DedupJob`)에서 정한다: raw · parse 3 (raw 파티션 수), dedup · sink 2. `deploy/dedup.yaml`의 `job.parallelism`은 코드 값에 덮여 쓰이지 않는다. 슬롯이 1개라 TaskManager가 3개 뜬다.
+- 체크포인트 · savepoint는 MinIO(`s3://binance/flink/clean/flink-dedup/`)에 남고 `upgradeMode: savepoint`로 재배포 때 state를 이어받는다. MinIO가 내려가 있으면 체크포인트가 실패하고, 연속 3번 실패하면 job이 재시작한다. 배포 전에 `binance-processing`에도 Secret `minio-auth`를 만든다 ([deploy/dedup.yaml](deploy/dedup.yaml) 맨 위).
 - sink는 at-least-once다.

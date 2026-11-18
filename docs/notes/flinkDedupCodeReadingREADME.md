@@ -198,7 +198,7 @@ JobManager pod 죽음
 
 ## 7. Web UI에서 보이는 모양
 
-병렬도 1이고 연산자 사이가 forward 연결이면 Flink가 하나의 task로 묶는다(chaining). `keyBy`에서 묶음이 끊기므로 경로 하나는 **박스 2개**로 보인다.
+연산자 사이가 forward 연결(같은 병렬도, 1:1)이면 Flink가 하나의 task로 묶는다(chaining). raw · parse(병렬도 3)가 한 박스, `keyBy`에서 끊겨 dedup · clean(병렬도 2)이 한 박스라 경로 하나는 **박스 2개**로 보인다.
 
 ```text
 [raw.spot.crypto.bookticker → parse.spot.crypto.bookticker] ──keyBy──▶ [dedup.spot.crypto.bookticker → clean.spot.crypto.bookticker]
@@ -210,7 +210,7 @@ JobManager pod 죽음
 
 ## 8. 헷갈리기 쉬운 점
 
-- **코드가 yaml을 이긴다.** 같은 설정을 코드와 yaml 양쪽에 쓰면 코드 값이 적용된다. 예를 들어 `main`에 `env.setParallelism(1)`을 넣으면 `job.parallelism`을 바꿔도 1로 돈다. 그래서 병렬도와 체크포인트 설정은 코드에 두지 않는다.
+- **코드가 yaml을 이긴다.** 같은 설정을 코드와 yaml 양쪽에 쓰면 코드 값이 적용된다. 체크포인트 설정은 이미지 재빌드 없이 바꾸려고 yaml(`flinkConfiguration`)에만 둔다. 병렬도는 연산자마다 다르게(raw · parse 3, dedup · sink 2) 주려고 `DedupJob`에서 `setParallelism`으로 정한다. 그래서 yaml의 `job.parallelism: 1`은 쓰이지 않는다.
 - **Kafka key는 source에서 버리고 sink에서 다시 만든다.** 중간 단계에서 쓰는 심볼은 envelope의 `symbol` 필드다.
 - **`seen`은 키마다 따로다.** `ValueState` 하나가 키별로 다른 값을 가진다.
 - **clean에도 중복이 생길 수 있다.** sink가 at-least-once라 재시작 직후 몇 건이 다시 쓰일 수 있고, TTL 1분보다 늦게 온 중복도 통과한다.

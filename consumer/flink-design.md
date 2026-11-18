@@ -2,7 +2,7 @@
 
 Kafka raw 토픽을 읽어 dedup과 분석을 하는 Flink 앱의 설계안이다. 수집 앱은 raw를 Kafka로 보내기만 하고, dedup·조인·분석은 전부 여기서 한다.
 
-> 상태: **dedup job 구현, basis job 예정.** dedup은 [flink-app/](flink-app/)에 있고 Flink Operator(`FlinkDeployment`)로 띄운다 (매니페스트 작성, 배포 검증 전). [flink-test/](flink-test/)는 경로 하나짜리 테스트 버전이다. 확정되면 `plan/consumer/plan.md`에 결정 기록으로 옮긴다.
+> 상태: **dedup job 구현, basis job 예정.** dedup은 [flink-app/](flink-app/)에 있고 Flink Operator(`FlinkDeployment`)로 띄운다 (2026-11-18 클러스터 배포 확인: `spot.crypto.bookticker` 경로, raw : clean ≈ 2 : 1). [flink-test/](flink-test/)는 경로 하나짜리 테스트 버전이다. 확정되면 `plan/consumer/plan.md`에 결정 기록으로 옮긴다.
 
 ## 전체 흐름
 
@@ -46,7 +46,7 @@ ingestion pod ──> raw ──[dedup job]──> clean ──[basis job]──
 
 ### trade-off
 
-- job이 늘수록 JobManager·TaskManager pod가 늘어 kind 자원을 더 쓴다.
+- job이 늘수록 JobManager·TaskManager pod가 늘어 클러스터 자원을 더 쓴다.
 - clean 토픽을 한 번 거치므로 dedup과 분석을 한 job에 합칠 때보다 지연이 조금 늘어난다. 대신 clean을 다른 분석에서 재사용하고 단계별 지연을 따로 잴 수 있다.
 
 ---
@@ -56,7 +56,7 @@ ingestion pod ──> raw ──[dedup job]──> clean ──[basis job]──
 ### 고려 사항
 
 - raw → clean 쌍은 9개다 ([docs/kafka/topics.md](../docs/kafka/topics.md)).
-- job마다 JobManager와 TaskManager가 생긴다. kind는 PC 한 대 위에 있고 메모리가 넉넉하지 않다.
+- job마다 JobManager와 TaskManager가 생긴다. 결정 당시 kind는 PC 한 대 위에 있어 메모리가 넉넉하지 않았다 (지금은 노드 4대).
 - 쌍마다 하는 일은 같고 dedup 키 필드만 다르다 (`u`, `t`, `a`).
 
 ### 선택 옵션
@@ -239,7 +239,7 @@ spotMid.keyBy(SpotMid::symbol)
 | 배포 | Flink Kubernetes Operator 1.16.1, `FlinkDeployment` (application mode), namespace `binance-processing` | job마다 따로 띄우고 따로 재시작. 1.16.1은 Flink 2.2(`v2_2`)를 지원한다 |
 | Operator 설치 | webhook 끔 (cert-manager 없음) | 설치할 것과 메모리를 줄인다 ([Infra/Flink-Install/](../Infra/Flink-Install/README.md)) |
 | jar | shadowJar, Flink 본체는 `compileOnly` | Flink 이미지에 있는 것을 다시 넣지 않는다. Kafka 커넥터와 Jackson만 넣는다 |
-| 자원 | JobManager 1024m, TaskManager 1536m, 슬롯 1, managed memory 0.1 | state가 heap에 있어 RocksDB용 managed memory가 거의 필요 없다 |
+| 자원 | JobManager 1024m, TaskManager 1536m × 3 (슬롯 1, 가장 큰 병렬도 3), managed memory 0.1 | state가 heap에 있어 RocksDB용 managed memory가 거의 필요 없다 |
 | JobManager HA | `high-availability.type: kubernetes`, storageDir는 MinIO, `jobManager.replicas: 1` | JobManager가 마지막 체크포인트 위치를 메모리에만 들고 있으면 pod가 다시 뜰 때 잃는다. HA가 ConfigMap과 MinIO에 남겨 이어받게 한다. standby(replicas 2)는 복구를 몇십 초 줄이는 대신 1Gi를 더 써서 아직 두지 않는다 |
 | upgradeMode | savepoint | 재배포 때 Operator가 savepoint를 찍고 새 job이 거기서 시작해 state와 offset이 이어진다 |
 | 체크포인트 저장소 | MinIO `s3://binance/flink/clean/flink-dedup/checkpoints`, savepoint는 `s3://binance/flink/clean/flink-dedup/savepoints` | 경로 · 주소 · 계정은 `dedup.yaml`의 `flinkConfiguration`과 env에, 간격 · timeout · 보관 정책도 같은 `flinkConfiguration`에 둔다. Operator가 savepoint 경로를 `flinkConfiguration`에서 읽고, 값을 바꿀 때 이미지를 다시 빌드하지 않기 위해서다 ([Infra/MinIO/](../Infra/MinIO/README.md)) |
@@ -255,6 +255,5 @@ spotMid.keyBy(SpotMid::symbol)
 - **문서 불일치:** [plan/topic/insight_1_plan.md](../plan/topic/insight_1_plan.md)의 dedup 방식이 `keyBy(u)`로 되어 있다. 이 설계안은 `(symbol, u)`다. 어느 쪽으로 맞출지 확인한 뒤 고친다.
 - **순서:** 수집 앱의 `@Async` 스레드풀이 같은 심볼의 메시지 순서를 섞을 수 있다. dedup은 순서와 상관없지만, depth처럼 순서가 중요한 스트림을 Flink에서 이어 붙이려면 수집 쪽부터 고쳐야 한다.
 - **로컬 접속:** Kafka 리스너가 클러스터 안 주소만 알려 줘서, 로컬 노트북(과 로컬에서 돌리는 Flink)이 붙으려면 외부 리스너가 필요하다 ([flink-test/README.md](flink-test/README.md)).
-- **Operator 배포 검증:** 로컬 PC 메모리(WSL 약 8GB)로는 Kafka 브로커 3대와 Operator + JobManager + TaskManager를 함께 올리기 어렵다. 클러스터를 옮긴 뒤 배포와 동작을 확인한다.
-- **체크포인트 저장소 검증:** MinIO 설정과 `upgradeMode: savepoint`를 넣었다. 배포 후 Web UI Checkpoints 탭과 MinIO `binance` 버킷에 체크포인트가 생기는지, 이미지 태그를 올려 재배포했을 때 savepoint에서 시작하는지 확인한다.
+- **savepoint 재배포 검증:** 체크포인트가 MinIO(`binance/flink/clean/flink-dedup/`)에 쌓이는 것은 2026-11-18 배포에서 확인했다. 이미지 태그를 올려 재배포했을 때 savepoint를 찍고 거기서 이어 시작하는지는 아직 확인하지 않았다.
 - **clean 보존 기간:** `spot.crypto.bookticker`(24h) 외에는 임시로 raw와 같게 두었다.

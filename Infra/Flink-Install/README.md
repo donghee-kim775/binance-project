@@ -33,7 +33,7 @@ job 매니페스트는 앱 쪽에 있다: [consumer/flink-app/deploy/](../../con
 ```bash
 kubectl apply -f consumer/flink-app/deploy/dedup.yaml
 kubectl get flinkdeployment -n binance-processing       # JOB STATUS가 RUNNING이면 정상
-kubectl get pods -n binance-processing                   # flink-dedup-xxx (JobManager), flink-dedup-taskmanager-1-1
+kubectl get pods -n binance-processing                   # flink-dedup-xxx (JobManager), flink-dedup-taskmanager-1-1 ~ 1-3
 kubectl logs -n binance-processing deploy/flink-dedup -f # JobManager 로그
 ```
 

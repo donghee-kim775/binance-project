@@ -60,7 +60,7 @@ spec:
 
 - **Secret은 namespace마다 따로다.** Flink job은 `binance-processing`에 있으므로 `minio-auth`를 거기에도 만든다.
 - 계정을 환경 변수로 넘겨 `flinkConfiguration`(git에 올라가는 파일)에 키가 남지 않게 한다. S3 플러그인(hadoop)은 `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY`를 읽는다.
-- 실제로 체크포인트가 쓰이는지는 적용할 때 Flink Web UI의 Checkpoints 탭과 MinIO 콘솔의 `binance` 버킷으로 확인한다.
+- 2026-11-18 배포에서 체크포인트 · HA 기록이 `binance/flink/clean/flink-dedup/` 아래에 쌓이는 것을 확인했다 (`savepoints/`는 첫 savepoint 때 생긴다). 확인은 Flink Web UI의 Checkpoints 탭과 MinIO 콘솔의 `binance` 버킷으로 한다.
 
 ## 설정 이유
 

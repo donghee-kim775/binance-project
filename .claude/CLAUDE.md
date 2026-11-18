@@ -8,10 +8,16 @@ Binance WebSocket 시장 데이터를 Kafka로 수집하고 Flink로 분석하�
 - `datasource-ingestion/deploy/`: 수집 앱 Dockerfile과 K8s 매니페스트 (kustomize). 설정→코드 매핑은 `deploy/mapping.md`
 - 분석(dedup, basis join 등)은 **별도 Flink 앱**에서 한다. 수집 앱에 넣지 않는다.
 - `plan/`: 설계 결정 기록 (`ingestion/`, `topic/`, `consumer/`, `storage/`)
-- `Infra/`: kind 클러스터, Strimzi Kafka, Flink Operator, MinIO, ClickHouse, Monitoring(Prometheus · Grafana)
+- `Infra/`: Strimzi Kafka, Flink Operator, MinIO, ClickHouse, Monitoring(Prometheus · Grafana)
 - `docs/`: Binance API 조사 (`binance-api/`, `streams/`), 수집 심볼 표와 섹터 분류 (`symbols/0TickerInfoTable.md`, `symbols/cryptoSectorREADME.md`), Kafka 토픽 목록과 설정 이유 (`kafka/`), 초기 메모 (`notes/`), Spring Boot 동작 정리 (`spring/`)
 - `Insights/`: 인사이트 카탈로그와 인사이트별 계획
 - `servingapp/`: 서빙 계층 설계
+
+## 실행 환경
+
+- Kubernetes 1.28.6 클러스터, 노드 4대 (`dclabnode1`~`4`, 모두 pod 스케줄 가능), 기본 StorageClass `local-path`
+- 앱 이미지는 Docker Hub `kimdonghee125/*`에 push하고 클러스터가 받는다 (`kind load` 안 씀)
+- 처음에는 PC 한 대의 kind 클러스터(`Infra/kind-study.yaml`)에서 시작했다. 문서에 "kind 자원 부족"이 이유로 남은 결정은 그때 기준이다
 
 ## 설계 규칙
 
@@ -53,14 +59,14 @@ public CompletionStage<?> onText(...) {
 # 빌드
 cd datasource-ingestion/collector && ./gradlew bootJar
 
-# 이미지 (datasource-ingestion/ 에서)
-docker build -f deploy/Dockerfile -t ingestion-collector:0.0.1 collector
+# 이미지 (datasource-ingestion/ 에서). 클러스터는 Docker Hub(kimdonghee125)에서 받는다
+docker build -f deploy/Dockerfile -t kimdonghee125/ingestion-collector:<태그> collector
+docker push kimdonghee125/ingestion-collector:<태그>
 
 # 매니페스트 렌더링 검사
 kubectl kustomize datasource-ingestion/deploy
 
-# kind 배포
-kind load docker-image ingestion-collector:0.0.1
+# 클러스터 배포 (노드 4대 dclabnode1~4. 예전 로컬 kind 환경은 Infra/kind-study.yaml)
 kubectl apply -k datasource-ingestion/deploy
 kubectl get pods -n binance-ingestion -L rate-group
 ```

@@ -14,7 +14,7 @@ notebooks/dedup_test.ipynb <── binance.clean.spot.crypto.bookticker (dedup_t
 ```text
 flink-test/
 ├── flink-test-app/          # Flink job (Gradle 프로젝트, Dockerfile)
-├── k8s/                     # 토픽, kind 배포 매니페스트
+├── k8s/                     # 토픽, 클러스터 배포 매니페스트
 └── notebooks/               # 테스트 메시지 보내기 · 결과 확인
 ```
 
@@ -23,7 +23,7 @@ flink-test/
 | [DedupTestJob.java](flink-test-app/src/main/java/com/consumer/flinktest/DedupTestJob.java) | Kafka source → `(symbol, u)` dedup → Kafka sink |
 | [flink-test-app/Dockerfile](flink-test-app/Dockerfile) | 이미지 (MiniCluster로 실행) |
 | [k8s/topics.yaml](k8s/topics.yaml) | raw · clean 토픽 (파티션 3, 보존 24h) |
-| [k8s/flink-test.yaml](k8s/flink-test.yaml) | kind 배포 (namespace `binance-processing`, Deployment 1개) |
+| [k8s/flink-test.yaml](k8s/flink-test.yaml) | 클러스터 배포 (namespace `binance-processing`, Deployment 1개) |
 | [notebooks/dedup_test.ipynb](notebooks/dedup_test.ipynb) | 중복 메시지 보내기 → clean 결과 확인 |
 
 명령어는 모두 `consumer/flink-test/`에서 실행한다.
@@ -75,7 +75,7 @@ kubectl port-forward -n binancekafka pod/binance-cluster-binance-cluster-pool-2 
 
 ### 3. Flink job 실행
 
-**kind에서 (기본):**
+**클러스터에서 (기본):**
 
 ```bash
 docker build -t kimdonghee125/flink-test:0.0.1 flink-test-app
@@ -86,7 +86,7 @@ kubectl logs -n binance-processing deploy/flink-test-dedup -f
 
 pod 하나 안에서 JobManager와 TaskManager가 같이 뜬다 (MiniCluster). Flink Operator는 쓰지 않는다. Kafka에는 클러스터 안 주소(`binance-cluster-kafka-bootstrap.binancekafka.svc:9092`)로 붙으므로 2단계 리스너가 필요 없다. 2단계는 노트북 때문에 필요하다.
 
-코드를 고친 뒤에는 이미지를 다시 빌드·load하고 `kubectl rollout restart -n binance-processing deploy/flink-test-dedup`.
+코드를 고친 뒤에는 이미지 태그를 올려 다시 빌드·push하고 yaml의 `image`를 바꾼 뒤 apply하거나 `kubectl rollout restart -n binance-processing deploy/flink-test-dedup`.
 
 **로컬에서:**
 
