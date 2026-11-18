@@ -14,3 +14,6 @@ Flink Kubernetes Operator 1.16.1 (cert-manager 없이 설치). 설치 방법과 
 
 # MinIO
 Flink 체크포인트 · savepoint 저장소 (S3 호환). 설치 방법과 Flink 연결 설정은 [MinIO/README.md](MinIO/README.md).
+
+# Monitoring
+클러스터에 설치된 kube-prometheus-stack(Prometheus · Grafana). 접속 주소와 앱 메트릭을 붙이는 법은 [Monitoring/README.md](Monitoring/README.md), 무엇을 볼지는 [Monitoring/metrics.md](Monitoring/metrics.md).
