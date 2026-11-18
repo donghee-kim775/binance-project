@@ -40,7 +40,13 @@ kubectl get prometheus -n monitoring monitoring-kube-prometheus-prometheus \
 
 ## 대시보드 관리
 
-Grafana pod에 sidecar(`grafana-sc-dashboard`)가 있어, **라벨 `grafana_dashboard: "1"`이 붙은 ConfigMap**의 JSON을 대시보드로 자동으로 불러온다. UI에서 만든 대시보드는 Export → JSON으로 받아 ConfigMap으로 저장한다.
+Grafana pod에는 sidecar(`grafana-sc-dashboard`)가 있다. sidecar는 모든 namespace를 살펴서 **라벨 `grafana_dashboard: "1"`이 붙은 ConfigMap**의 JSON을 대시보드로 자동으로 불러온다. UI에서 만든 대시보드는 Export → JSON으로 받아 ConfigMap으로 저장한다.
+
+대시보드마다 [dashboards/](dashboards/) 아래에 폴더를 하나씩 둔다. 폴더에는 `dashboard.yaml`(ConfigMap)과 `README.md`(패널별 계산 방법)가 들어간다. 올릴 때는 `kubectl apply -R -f Infra/Monitoring/dashboards/`를 쓴다.
+
+| 폴더 | 대시보드 | 지표 출처 |
+| --- | --- | --- |
+| [binance-raw-ingest/](dashboards/binance-raw-ingest/) | `Binance / raw 유입 · Flink lag`: raw 초당 메시지 (전체 · 토픽별 · 파티션별), consumer lag, lag 5분 증가량 | Kafka Exporter |
 
 ## 지금 단순화한 것
 

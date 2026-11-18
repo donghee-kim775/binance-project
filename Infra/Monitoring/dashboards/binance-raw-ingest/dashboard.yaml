@@ -1,0 +1,159 @@
+# Grafana 대시보드: raw 토픽 유입량 + Flink consumer lag (metrics.md 0절의 두 질문)
+# - 라벨 grafana_dashboard: "1" 이면 Grafana sidecar가 자동으로 불러온다 (Infra/Monitoring/README.md)
+# - 지표 출처: Kafka Exporter (Infra/Kafka/Kafka-Cluster/kafka-cluster.yaml 의 kafkaExporter)
+# - 패널별 계산 방법: 같은 폴더의 README.md
+# - lag가 -1이면 한 번도 커밋하지 않은 빈 파티션이다. clamp_min(…, 0)으로 0으로 본다
+# - Flink는 체크포인트(10s)가 끝날 때 offset을 커밋해서 lag가 10초 톱니로 보인다. 톱니 바닥이 계속 오르면 밀리는 것
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-binance-raw-ingest
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  binance-raw-ingest.json: |
+    {
+      "uid": "binance-raw-ingest",
+      "title": "Binance / raw 유입 · Flink lag",
+      "tags": ["binance"],
+      "timezone": "browser",
+      "refresh": "10s",
+      "time": { "from": "now-15m", "to": "now" },
+      "schemaVersion": 39,
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "데이터 소스",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {}
+          },
+          {
+            "name": "group",
+            "label": "consumer group",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "query": { "query": "label_values(kafka_consumergroup_lag{topic=~\"binance.raw.*\"}, consumergroup)", "refId": "group" },
+            "definition": "label_values(kafka_consumergroup_lag{topic=~\"binance.raw.*\"}, consumergroup)",
+            "current": { "text": "flink-dedup", "value": "flink-dedup" },
+            "refresh": 2
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "raw 전체 초당 메시지",
+          "description": "binance.raw.* 토픽 offset 증가율 (1분 평균). 0이면 수집이 끊긴 것. spot-sov(BTC bookTicker, pod 2개)만 켜면 약 365/s",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(rate(kafka_topic_partition_current_offset{topic=~\"binance.raw.*\"}[1m]))" }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+            },
+            "overrides": []
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area", "textMode": "value" }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Flink lag 합계 ($group)",
+          "description": "raw 토픽 전체 파티션의 consumer lag 합. 체크포인트 간격(10s) 동안 쌓였다가 커밋되면 0 근처로 떨어진다. 365/s면 최고 약 3,600",
+          "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$group\", topic=~\"binance.raw.*\"}, 0))" }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 10000 }, { "color": "red", "value": 50000 } ] }
+            },
+            "overrides": []
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area", "textMode": "value" }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "lag 5분 증가량 ($group)",
+          "description": "5분 전보다 lag가 얼마나 늘었나 (5분 최소값끼리 비교해 톱니를 지운다). 0 근처면 따라가고 있음, 계속 양수면 Flink가 밀림",
+          "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(min_over_time(clamp_min(kafka_consumergroup_lag{consumergroup=\"$group\", topic=~\"binance.raw.*\"}, 0)[5m:15s])) - sum(min_over_time(clamp_min(kafka_consumergroup_lag{consumergroup=\"$group\", topic=~\"binance.raw.*\"}, 0)[5m:15s] offset 5m))" }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1000 }, { "color": "red", "value": 10000 } ] }
+            },
+            "overrides": []
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value" }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "메시지가 들어오는 raw 토픽 수",
+          "description": "초당 메시지가 0보다 큰 raw 토픽 개수. 켠 수집 pod 그룹의 스트림 수와 맞아야 한다",
+          "gridPos": { "x": 18, "y": 0, "w": 6, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "count(sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"binance.raw.*\"}[1m])) > 0) or vector(0)" }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } },
+            "overrides": []
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "토픽별 초당 메시지 (raw)",
+          "gridPos": { "x": 0, "y": 5, "w": 12, "h": 10 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"binance.raw.*\"}[1m])) > 0", "legendFormat": "{{topic}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 10, "lineWidth": 2 } }, "overrides": [] },
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "lastNotNull"] }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "토픽별 Flink lag ($group)",
+          "gridPos": { "x": 12, "y": 5, "w": 12, "h": 10 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum by (topic) (clamp_min(kafka_consumergroup_lag{consumergroup=\"$group\", topic=~\"binance.raw.*\"}, 0))", "legendFormat": "{{topic}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 10, "lineWidth": 2 } }, "overrides": [] },
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max", "lastNotNull"] }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "파티션별 초당 메시지 (키 = 심볼이라 한쪽에 몰리는지)",
+          "gridPos": { "x": 0, "y": 15, "w": 24, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "rate(kafka_topic_partition_current_offset{topic=~\"binance.raw.*\"}[1m]) > 0", "legendFormat": "{{topic}} p{{partition}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 0, "lineWidth": 1 } }, "overrides": [] },
+          "options": { "legend": { "displayMode": "list", "placement": "right" }, "tooltip": { "mode": "multi" } }
+        }
+      ]
+    }

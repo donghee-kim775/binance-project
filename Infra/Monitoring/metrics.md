@@ -6,6 +6,39 @@
 - ✅ 지금 볼 수 있음 (kube-state-metrics · cAdvisor · node-exporter, 설정 불필요)
 - 🔧 메트릭 노출 설정이 필요함 (각 절 맨 아래 "붙이는 법")
 
+## 스트리밍 지표 모음
+
+스트리밍 파이프라인에서 데이터가 **얼마나 들어오고, 얼마나 처리되고, 얼마나 늦고, 밀리지 않는지**를 보는 지표를 먼저 모았다. 자원(CPU · 메모리)이나 pod 상태 지표는 아래 절에 있다.
+
+- Prometheus 이름은 exporter를 붙인 기본 이름 규칙을 따른 것이다. 붙인 뒤 Prometheus UI에서 실제 이름을 한 번 확인한다.
+- Flink 지표는 `flink_taskmanager_job_task_operator_` 같은 접두어가 붙고, 라벨 `operator_name`(`raw.<routeId>`, `dedup.<routeId>` …)으로 route를 나눈다.
+
+| 분류 | 지표 | Prometheus 이름 (예상) | 출처 | 정상 | 상태 |
+| --- | --- | --- | --- | --- | --- |
+| 유입량 | 수집 앱 Kafka 발행 건수 | `kafka_producer_record_send_total` (rate) | 수집 앱 micrometer | pod 2개가 비슷한 값 | 🔧 |
+| 유입량 | 수집 앱 발행 에러 | `kafka_producer_record_error_total` | 수집 앱 micrometer | 0 | 🔧 |
+| 유입량 | 스트림별 WebSocket 수신 건수 | 직접 만드는 카운터 | 수집 앱 코드 | 연결된 스트림은 모두 0보다 큼 | 🔧 |
+| 유입량 | 토픽 초당 메시지 수 (raw · clean) | `rate(kafka_topic_partition_current_offset[1m])` 를 `topic`으로 합침 | kafka-exporter | raw ≈ clean × 2 | ✅ |
+| 유입량 | 파티션별 최신 offset | `kafka_topic_partition_current_offset` | kafka-exporter | 파티션이 고르게 증가 (지금은 BTCUSDT 하나라 파티션 2만 증가) | ✅ |
+| 처리량 | 연산자 초당 입력 · 출력 | `..._operator_numRecordsInPerSecond`, `..._operator_numRecordsOutPerSecond` | Flink reporter | parse 입력 = 출력, dedup 출력 ≈ 입력 ÷ 2 | 🔧 |
+| 처리량 | dedup 비율 (입력 ÷ 출력) | 위 두 값으로 계산 | Flink reporter | ≈ 2.0 | 🔧 |
+| 처리량 | sink 전송 건수 · 에러 | `..._operator_numRecordsSend`, `..._operator_numRecordsSendErrors` | Flink reporter (KafkaSink) | 에러 0 | 🔧 |
+| 밀림 | Flink 실시간 lag | `..._KafkaSourceReader_KafkaConsumer_records_lag_max`, `..._operator_pendingRecords` | Flink reporter (KafkaSource) | 0 근처 | 🔧 |
+| 밀림 | consumer group lag (커밋 기준) | `kafka_consumergroup_lag` (빈 파티션은 -1) | kafka-exporter | 10초 톱니, 바닥이 오르지 않음 | ✅ |
+| 밀림 | backpressure | `..._task_isBackPressured`, `..._task_backPressuredTimeMsPerSecond` | Flink reporter | 0 | 🔧 |
+| 밀림 | 연산자 바쁨 정도 | `..._task_busyTimeMsPerSecond`, `..._task_idleTimeMsPerSecond` | Flink reporter | busy가 1000(100%)에 붙지 않음 | 🔧 |
+| 지연 | 수집 앱 → dedup 지연 (`dedup_time − receive_time`) | 지금은 Kafka 데이터를 꺼내 계산 | 직접 측정 | 평소 p50 37 · p90 92ms (2026-11-18) | 수동 |
+| 지연 | source 이벤트 시각 지연 | `..._operator_currentEmitEventTimeLag` | Flink reporter (KafkaSource) | 수십 ms (raw `CreateTime` 기준) | 🔧 |
+| 지연 | producer 요청 지연 | `kafka_producer_request_latency_avg` | 수집 앱 micrometer | 수 ms | 🔧 |
+| 지연 | broker Produce · Fetch 처리 시간 | `kafka_network_requestmetrics_totaltimems` (라벨 `request`) | Strimzi JMX | 평소 값 유지 | 🔧 |
+| 체크포인트 | 소요 시간 | `flink_jobmanager_job_lastCheckpointDuration` | Flink reporter | 수 초 (지금 약 2초) | 🔧 |
+| 체크포인트 | 크기 (state) | `flink_jobmanager_job_lastCheckpointSize` | Flink reporter | 일정 범위 (TTL 1분) | 🔧 |
+| 체크포인트 | 완료 · 실패 횟수 | `flink_jobmanager_job_numberOfCompletedCheckpoints`, `flink_jobmanager_job_numberOfFailedCheckpoints` | Flink reporter | 완료는 10초마다 +1, 실패는 늘지 않음 | 🔧 |
+| 체크포인트 | job 재시작 | `flink_jobmanager_job_numRestarts` | Flink reporter | 늘지 않음 | 🔧 |
+
+- **지연을 상시 지표로 보는 방법은 아직 없다.** `currentEmitEventTimeLag`는 raw `CreateTime` 기준이라 수집 앱 내부(0~1ms)를 뺀 Kafka → Flink 구간에 가깝다. dedup → clean 구간은 [plan/performance/plan.md](../../plan/performance/plan.md) 2번 개선 사항.
+- dedup job은 watermark(이벤트 시간)를 쓰지 않아 `currentOutputWatermark` 계열은 볼 것이 없다. 이벤트 시간 window를 쓰는 job(basis 등)이 생기면 추가한다.
+
 ## 0. 한눈에 볼 다섯 가지
 
 대시보드 맨 위에 둘 질문이다. 하나라도 "아니오"면 아래 절로 내려가 원인을 찾는다.
@@ -19,6 +52,10 @@
 | 어디가 죽지 않았나? | pod 재시작 수, Ready 상태 | 재시작이 늘지 않음 |
 
 2026-11-18에 spot-sov만 켜고 60초 동안 잰 값: raw +21,888, clean +10,865, 비율 2.015.
+
+**raw 초당 메시지 수와 consumer lag는 지금 Grafana에서 볼 수 있다.** 대시보드 이름은 `Binance / raw 유입 · Flink lag`이고, 정의와 패널별 계산 방법은 [dashboards/binance-raw-ingest/](dashboards/binance-raw-ingest/)에 있다. 데이터는 Kafka Exporter에서 온다.
+- lag는 체크포인트 간격(10초)마다 톱니처럼 오르내린다. 그래서 "계속 늘지 않음"은 패널 **lag 5분 증가량**으로 본다. 이 패널은 5분 최소값끼리 빼서 톱니를 지운 값이다.
+- lag가 `-1`이면 한 번도 커밋하지 않은 빈 파티션이다. 쿼리에서 `clamp_min(…, 0)`으로 0으로 바꾼다.
 
 ## 1. 수집 앱 (`binance-ingestion`)
 
@@ -41,13 +78,15 @@
 | --- | --- | --- | --- |
 | broker pod Ready · 재시작 | broker 3개 중 하나라도 빠지면 replica 부족 | 3/3 | ✅ |
 | broker 디스크(PVC) 사용량 | raw · clean retention(24h) 동안 쌓이는 양 | 여유 30% 이상 | ✅ |
-| 토픽별 초당 메시지 수 | raw와 clean을 나란히 놓으면 0절의 비율이 보임 | raw ≈ clean × 2 | 🔧 |
-| **consumer lag** (Flink 그룹, raw 토픽) | Flink가 수집 속도를 따라가는지. 파이프라인 지연의 핵심 지표 | 0 근처. 계속 늘면 Flink가 느리거나 멈춤 | 🔧 |
+| 토픽별 초당 메시지 수 | raw와 clean을 나란히 놓으면 0절의 비율이 보임 | raw ≈ clean × 2 | ✅ (kafka-exporter) |
+| **consumer lag** (Flink 그룹, raw 토픽) | Flink가 수집 속도를 따라가는지. 파이프라인 지연의 핵심 지표 | 0 근처. 계속 늘면 Flink가 느리거나 멈춤 | ✅ (kafka-exporter) |
 | under-replicated 파티션 수 | broker 하나가 뒤처지거나 빠짐 | 0 | 🔧 |
 | offline 파티션 수 | 읽기 · 쓰기가 안 되는 파티션 | 0 (0이 아니면 바로 장애) | 🔧 |
 | 요청 처리 시간 (Produce · Fetch) | broker가 느려지는지 | 평소 값 유지 | 🔧 |
 
-**붙이는 법:** Strimzi `Kafka` 리소스에 `metricsConfig`(JMX Prometheus exporter, ConfigMap 규칙)와 `kafkaExporter`(consumer lag · 토픽 offset)를 추가 → broker가 롤링 재시작됨 → PodMonitor. Strimzi 예제 저장소의 Grafana 대시보드(`strimzi-kafka.json`, `strimzi-kafka-exporter.json`)를 그대로 쓸 수 있다.
+**붙이는 법:**
+- **`kafkaExporter`(consumer lag · 토픽 offset): 적용됨 (2026-11-18).** 설정은 [kafka-cluster.yaml](../Kafka/Kafka-Cluster/kafka-cluster.yaml)의 `spec.kafkaExporter`와 [kafka-exporter-podmonitor.yaml](../Kafka/Kafka-Cluster/kafka-exporter-podmonitor.yaml)에 있다. 별도 pod로 떠서 broker는 재시작되지 않았다.
+- **broker JMX 지표(under-replicated, 요청 처리 시간 등): 아직 안 함.** Strimzi `Kafka` 리소스에 `metricsConfig`(JMX Prometheus exporter, ConfigMap 규칙)를 넣으면 broker가 롤링 재시작된다. 그다음 PodMonitor를 만든다. Strimzi 예제 저장소의 Grafana 대시보드(`strimzi-kafka.json`, `strimzi-kafka-exporter.json`)를 그대로 쓸 수 있다.
 
 - Flink Kafka source는 **체크포인트가 끝날 때** offset을 커밋한다. 그래서 kafka-exporter가 보는 lag는 체크포인트 간격(10s)만큼 톱니 모양으로 오르내린다. 정확한 실시간 lag는 Flink 쪽 지표(3절 `records-lag-max`)로 본다.
 

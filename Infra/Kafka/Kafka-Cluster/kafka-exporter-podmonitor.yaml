@@ -1,0 +1,18 @@
+# Kafka Exporter 지표를 Prometheus가 읽게 한다
+# - 라벨 release: monitoring 이 있어야 kube-prometheus-stack Prometheus가 읽는다 (Infra/Monitoring/README.md)
+# - Exporter pod는 kafka-cluster.yaml 의 spec.kafkaExporter 로 Strimzi가 만든다
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: binance-cluster-kafka-exporter
+  namespace: binancekafka
+  labels:
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: binance-cluster
+      strimzi.io/name: binance-cluster-kafka-exporter
+  podMetricsEndpoints:
+    - port: tcp-prometheus   # 9404
+      interval: 15s
