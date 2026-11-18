@@ -224,6 +224,7 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 | | [kafkaTopicsREADME.md](docs/kafka/kafkaTopicsREADME.md) | 초기 토픽 설계 초안과 조인 아이디어 (현재 토픽 설계는 [topic/plan.md](plan/topic/plan.md)) |
 | `notes/` | [collectorInsightsREADME.md](docs/notes/collectorInsightsREADME.md) | 시장별 스키마 차이, 토픽/키 설계 시 주의점 |
 | | [flinkDedupCodeReadingREADME.md](docs/notes/flinkDedupCodeReadingREADME.md) | Flink dedup job 코드 읽는 순서 (yaml → main → 레코드 흐름) |
+| | [flinkDedupRuntimeFlowREADME.md](docs/notes/flinkDedupRuntimeFlowREADME.md) | dedup job 5단계의 런타임 흐름 (스레드 · keyBy 셔플 · state · 체크포인트 barrier) |
 | `spring/` | [configuration.md](docs/spring/configuration.md) | 설정 출처와 탐색 순서, 프로파일(local/release), 환경변수 이름 규칙, 코드에서 값 받는 법 |
 
 [docs/streams/poc/](docs/streams/poc/)에는 각 시장 WebSocket을 실제로 연결해본 검증용 Jupyter 노트북이 있다.

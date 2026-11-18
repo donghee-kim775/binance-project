@@ -26,6 +26,13 @@ public class DedupJob {
     static final String GROUP_ID = "flink-dedup";
     static final Duration STATE_TTL = Duration.ofMinutes(1);
 
+    // 병렬도 설정
+    // raw · parse = 3 : raw 토픽 파티션 수(3)에 맞춘다. 같은 병렬도라 한 태스크로 묶여(chain) JSON 파싱도 3개로 나뉜다
+    // dedup · sink = 2 : 같은 병렬도라 묶인다. 셔플은 keyBy 한 번뿐이다
+    //   주의: dedup이 1보다 크면 같은 심볼의 다른 eventId가 다른 subtask로 가서 clean 토픽에서 순서가 바뀔 수 있다
+    static final int SOURCE_PARALLELISM = 3;
+    static final int DEDUP_PARALLELISM = 2;
+
     public static void main(String[] args) throws Exception {
 
         // dedup.yaml => flinkConfiguration
@@ -36,46 +43,73 @@ public class DedupJob {
             throw new IllegalArgumentException("경로 인자가 없다. deploy/dedup.yaml의 job.args를 확인한다");
         }
         for (String arg : args) {
+            // env : 
+            //  - StreamExecutionEnvironment
+            //
+            // DedupRoute.parse(arg) : 
+            //  - routeId : spot.crypto.bookticker
+            //  - rawTopic : binance.raw.spot.crypto.bookticker
+            //  - cleanTopic : binance.clean.spot.crypto.bookticker
+            //  - eventIdField : u(updateId) / t(tradeId) / a(aggTradeId)
             addRoute(env, DedupRoute.parse(arg));
         }
 
         env.execute("dedup");
     }
 
-    /**
+    /*
      * 경로 하나의 파이프라인을 붙인다: raw → parse → keyBy → dedup → clean
-     *
-     * 연산자마다 name(Web UI · 로그에 보이는 이름)과 uid(savepoint의 state를 다시 붙일 때 쓰는 이름)를
-     * "<단계>.<경로>"로 준다. uid를 경로 이름으로 고정해, 경로를 추가 · 삭제해도 다른 경로의 state가
-     * savepoint에서 그대로 이어진다. uid를 바꾸면 그 연산자의 state는 복원되지 않는다.
-     */
-    private static void addRoute(StreamExecutionEnvironment env, DedupRoute route) {
+     * state operator
+     *  - 1. raw : offset 기록
+     *  - 4. dedup : seen state
+     * stateless operator
+     *  - 2. parse
+     *  - 3. KeyBy
+     *  - 5. sink
+    */
+    private static void addRoute(StreamExecutionEnvironment env, DedupRoute route) {        
         String routeId = route.routeId();
-
+        String sourceTopic = route.rawTopic();
+        String sinkTopic = route.cleanTopic();
+        
         // [다음] 레코드마다 KafkaSource → DedupKeyParser.processElement → keyBy → DedupFunction.processElement → KafkaSink
 
         // 1. raw 토픽에서 envelope JSON 문자열을 읽는다
+        //   - {"symbol":"BTCUSDT","payload":{"u":5001,"b":"97000.1",...},...}
         DataStream<String> raw = env
-                .fromSource(KafkaIO.source(route.rawTopic(), GROUP_ID), WatermarkStrategy.noWatermarks(), "raw." + routeId)
-                .uid("raw." + routeId);
+                .fromSource(KafkaIO.source(sourceTopic, GROUP_ID), WatermarkStrategy.noWatermarks(), "raw." + routeId)
+                .name("raw." + routeId)
+                .uid("raw." + routeId)
+                .setParallelism(SOURCE_PARALLELISM);
 
-        // 2. dedup 키에 필요한 값만 꺼낸다 → (symbol, id, 원본 JSON). 깨진 메시지는 여기서 버린다
+        // 2. dedup 키에 필요한 값만 꺼낸다. 깨진 메시지는 여기서 버린다
+        //   - f0 = symbol : BTCUSDT
+        //   - f1 = eventId : 5001
+        //   - f2 = { 원본 JSON 문자열 }
         DataStream<Tuple3<String, String, String>> parsed = raw
-                .process(new DedupKeyParser(route.idField()))
-                .name("parse." + routeId).uid("parse." + routeId);
+                .process(new DedupKeyParser(route.eventIdField())) // u / t
+                .name("parse." + routeId)
+                .setParallelism(SOURCE_PARALLELISM);   // raw와 같게 → chain
 
         // 3. "symbol|id"로 나눈다. 같은 키는 항상 같은 DedupFunction 인스턴스 · 같은 state로 간다 (여기서 셔플)
+        //   - f0|f1 -> symbol|eventId -> BTCUSDT|5001 => hash
         KeyedStream<Tuple3<String, String, String>, String> keyed = parsed
                 .keyBy(t -> t.f0 + "|" + t.f1, Types.STRING);
 
-        // 4. 키를 처음 본 것만 통과시키고 dedup_time을 붙인다 → (symbol, JSON)
+        // 4. 중복 제거
+        //   - f0 : symbol
+        //   - f1 : { 원본 JSON, dedup_time }
         DataStream<Tuple2<String, String>> deduped = keyed
                 .process(new DedupFunction(STATE_TTL))
-                .name("dedup." + routeId).uid("dedup." + routeId);
+                .name("dedup." + routeId)
+                .uid("dedup." + routeId)
+                .setParallelism(DEDUP_PARALLELISM);
 
         // 5. clean 토픽에 쓴다 (key = symbol)
-        deduped
-                .sinkTo(KafkaIO.sink(route.cleanTopic()))
-                .name("clean." + routeId).uid("clean." + routeId);
+        //   - 원본 레코드 보냄
+        deduped.sinkTo(KafkaIO.sink(sinkTopic))
+                .name("clean." + routeId)
+                .uid("clean." + routeId)
+                .setParallelism(DEDUP_PARALLELISM);   // dedup과 같게 → chain
     }
 }

@@ -4,6 +4,7 @@ raw 토픽에는 Active-Active pod 2개가 같은 이벤트를 각자 보내서 
 **배포 yaml → `main` → 레코드 하나 → 체크포인트** 순으로 본다. 예시는 `binance.raw.spot.crypto.bookticker`에 실제로 들어온 메시지다.
 
 설계 이유(경로를 job 하나로 묶은 이유, 키, TTL 1분)는 [consumer/flink-design.md](../../consumer/flink-design.md), 실행 방법은 [flink-app/README.md](../../consumer/flink-app/README.md)에 있다.
+레코드가 각 단계에서 어느 스레드 · 버퍼 · state를 지나는지는 [flinkDedupRuntimeFlowREADME.md](flinkDedupRuntimeFlowREADME.md)에 따로 정리했다.
 
 ---
 
@@ -46,7 +47,7 @@ collector는 Spring이 yaml을 `@ConfigurationProperties`에 바인딩했다. �
 | env `KAFKA_BOOTSTRAP_SERVERS` | 컨테이너 환경 변수 | `KafkaIO.bootstrapServers()` |
 | `flinkConfiguration.execution.checkpointing.*` | Flink가 직접 적용 (간격, timeout, 저장 위치) | 읽지 않음 |
 | `flinkConfiguration.s3.*`, env `AWS_*`, `ENABLE_BUILT_IN_PLUGINS` | S3 플러그인이 MinIO에 붙을 때 사용 | 읽지 않음 |
-| `job.parallelism`, `taskmanager.numberOfTaskSlots` | Flink가 직접 적용 | 읽지 않음. 단 `main`의 `setParallelism(1)`이 `job.parallelism`을 덮어쓴다 |
+| `job.parallelism`, `taskmanager.numberOfTaskSlots` | Flink가 직접 적용 | 읽지 않음 |
 | `job.upgradeMode: savepoint` | 재배포 방식 | Operator 동작 (6장) |
 
 **설정 값은 yaml에, 처리 로직만 코드에** 둔다. 그래서 체크포인트 간격이나 경로를 바꿀 때 이미지를 다시 빌드하지 않는다.
@@ -57,7 +58,6 @@ collector는 Spring이 yaml을 `@ConfigurationProperties`에 바인딩했다. �
 
 ```java
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-env.setParallelism(1);
 for (String arg : args) addRoute(env, DedupRoute.parse(arg));
 env.execute("dedup");
 ```
@@ -81,7 +81,7 @@ DedupRoute(
   routeId    = "spot.crypto.bookticker",
   rawTopic   = "binance.raw.spot.crypto.bookticker",
   cleanTopic = "binance.clean.spot.crypto.bookticker",
-  idField    = "u")
+  eventIdField = "u")
 ```
 
 - 토픽 이름 규칙 `binance.<raw|clean>.<product>.<자산종류>.<스트림>`을 `DedupRoute`의 `RAW_PREFIX` · `CLEAN_PREFIX` 상수 한 곳에서 조립한다. 그래서 yaml에 토픽 이름을 직접 쓰지 않는다.
@@ -113,6 +113,8 @@ fromSource(KafkaIO.source(raw))      // String (envelope JSON)
 
 ## 5. 레코드 하나 따라가기
 
+스레드 · 직렬화 · 체크포인트 barrier까지 내려간 설명은 [flinkDedupRuntimeFlowREADME.md](flinkDedupRuntimeFlowREADME.md)에 있다.
+
 ### ① `KafkaIO.source`: Kafka value를 문자열로 받는다
 
 ```json
@@ -129,7 +131,7 @@ fromSource(KafkaIO.source(raw))      // String (envelope JSON)
 
 ```text
 envelope.symbol      → "BTCUSDT"
-envelope.payload.u   → "102670132459"     (idField = args의 콜론 뒤)
+envelope.payload.u   → "102670132459"     (eventIdField = args의 콜론 뒤)
 출력: Tuple3("BTCUSDT", "102670132459", 원본 json)
 ```
 
@@ -208,7 +210,7 @@ JobManager pod 죽음
 
 ## 8. 헷갈리기 쉬운 점
 
-- **코드가 yaml을 이긴다.** 같은 설정을 코드와 yaml 양쪽에 쓰면 코드 값이 적용된다. `setParallelism(1)`이 있으면 `job.parallelism`을 바꿔도 1로 돈다.
+- **코드가 yaml을 이긴다.** 같은 설정을 코드와 yaml 양쪽에 쓰면 코드 값이 적용된다. 예를 들어 `main`에 `env.setParallelism(1)`을 넣으면 `job.parallelism`을 바꿔도 1로 돈다. 그래서 병렬도와 체크포인트 설정은 코드에 두지 않는다.
 - **Kafka key는 source에서 버리고 sink에서 다시 만든다.** 중간 단계에서 쓰는 심볼은 envelope의 `symbol` 필드다.
 - **`seen`은 키마다 따로다.** `ValueState` 하나가 키별로 다른 값을 가진다.
 - **clean에도 중복이 생길 수 있다.** sink가 at-least-once라 재시작 직후 몇 건이 다시 쓰일 수 있고, TTL 1분보다 늦게 온 중복도 통과한다.

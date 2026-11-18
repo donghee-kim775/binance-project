@@ -34,9 +34,18 @@ class DedupFunction extends KeyedProcessFunction<String, Tuple3<String, String, 
     // [호출] Flink 런타임 — 태스크 시작 시 한 번
     @Override
     public void open(OpenContext openContext) {
+        // state 명세:
+        // - "seen"(savepoint 복원 시 식별자, 바꾸면 state를 못 찾음)
+        // - 값 타입 Boolean(직렬화기 결정)
         ValueStateDescriptor<Boolean> descriptor = new ValueStateDescriptor<>("seen", Types.BOOLEAN);
+
+        // 쓴 뒤 ttl이 지나면 만료 → value()가 null. 삭제는 state backend가 접근 시 · 점진 정리로 한다
         descriptor.enableTimeToLive(StateTtlConfig.newBuilder(ttl).build());
+
+        // Flink가 관리하는 state의 핸들. 하나의 핸들로 모든 키를 다루고, 레코드마다 현재 키의 값만 보인다
         seen = getRuntimeContext().getState(descriptor);
+
+        // 직렬화 대상이 아니라(transient) TaskManager에서 여기서 만든다
         mapper = new ObjectMapper();
     }
 
@@ -44,14 +53,21 @@ class DedupFunction extends KeyedProcessFunction<String, Tuple3<String, String, 
     @Override
     public void processElement(Tuple3<String, String, String> in, Context ctx,
             Collector<Tuple2<String, String>> out) throws Exception {
-        if (seen.value() != null) {
-            return; // 다른 pod가 보낸 같은 이벤트
-        }
-        seen.update(true);
 
-        // envelope와 payload는 그대로 두고 dedup 시각만 붙인다 (plan/topic/insight_1_plan.md 지연 측정 ④)
+        // state.value() 내에서 실행 중인 처리중인 Key 를 꺼냄
+        // seen.value()
+        // ㄴ stateTable.get(currentNamespace);
+        //    ㄴ get(keyContext.getCurrentKey(), keyContext.getCurrentKeyGroupIndex(), namespace);
+        if (seen.value() != null) {
+            return; // 이미 보내진 event => 해당 서브태스크에서 버림.
+        }
+
+        // update 도 위와 동일
+        seen.update(true);
+ 
         ObjectNode envelope = (ObjectNode) mapper.readTree(in.f2);
         envelope.put("dedup_time", System.currentTimeMillis());
+
         out.collect(Tuple2.of(in.f0, mapper.writeValueAsString(envelope)));
     }
 }
