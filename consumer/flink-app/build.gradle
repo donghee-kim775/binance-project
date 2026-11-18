@@ -1,0 +1,42 @@
+plugins {
+    id 'java'
+    // 의존성을 jar 하나에 합친다 (Flink Operator가 이 jar 하나를 job으로 실행한다)
+    id 'com.gradleup.shadow' version '9.6.1'
+}
+
+group = 'com.consumer'
+version = '0.0.1'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    flinkVersion = '2.2.1'
+}
+
+dependencies {
+    // Flink 이미지(flink:2.2.1-java17)의 /opt/flink/lib에 이미 있다 → jar에 넣지 않는다
+    compileOnly "org.apache.flink:flink-streaming-java:${flinkVersion}"
+    compileOnly "org.apache.flink:flink-connector-base:${flinkVersion}"   // flink-dist에 포함 (DeliveryGuarantee 등)
+
+    // Flink 이미지에 없다 → jar에 넣는다
+    implementation 'org.apache.flink:flink-connector-kafka:5.0.0-2.2'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.22.4'
+}
+
+tasks.shadowJar {
+    archiveFileName = 'flink-app.jar'
+    // 커넥터가 META-INF/services로 구현체를 등록하므로 합칠 때 덮어쓰지 않고 이어 붙인다
+    mergeServiceFiles()
+    // kafka-clients가 끌고 오는 slf4j API. Flink 이미지에 있고 Flink가 부모 클래스로더에서 먼저 찾으므로 뺀다
+    dependencies {
+        exclude(dependency('org.slf4j:.*'))
+    }
+}

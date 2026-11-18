@@ -24,9 +24,9 @@ datasource-ingestion/
 │       ├── service/
 │       │   └── MarketDataIngestService.java     # combined 메시지 풀기 → envelope 생성 → 발행 위임
 │       ├── model/
-│       │   └── EventEnvelope.java               # 공통 envelope (payload는 원본 그대로)
+│       │   └── BinanceEventEnvelope.java               # 공통 envelope (payload는 원본 그대로)
 │       └── kafka/
-│           └── RawEventPublisher.java           # raw 이벤트 발행 지점 (지금은 로그만)
+│           └── BinanceRawEventPublisher.java           # raw 이벤트 발행 지점 (지금은 로그만)
 │
 ├── deploy/                            # 이미지 · K8s 매니페스트 (kustomize)
 │   ├── Dockerfile                     # variable / fixed 공용 이미지 1개
@@ -69,11 +69,11 @@ cd collector
 
 자세한 준비물, 실행 결과 로그 읽는 법, 확인된 스트림 조합은 [`collector/README.md`](collector/README.md)를 참고한다.
 
-## K8s(kind)에 배포하려면
+## K8s에 배포하려면
 
 ```bash
-docker build -f deploy/Dockerfile -t ingestion-collector:0.0.1 collector
-kind load docker-image ingestion-collector:0.0.1
+docker build -f deploy/Dockerfile -t kimdonghee125/ingestion-collector:0.0.1 collector
+docker push kimdonghee125/ingestion-collector:0.0.1
 kubectl apply -k deploy
 kubectl get pods -n binance-ingestion -L rate-group
 ```

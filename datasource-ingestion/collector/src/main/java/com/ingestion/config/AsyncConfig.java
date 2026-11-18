@@ -16,6 +16,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 @EnableAsync
 public class AsyncConfig {
 
+    // [호출] 스프링 — 시작 시 1회. MarketDataIngestService.onRaw의 @Async("ingestExecutor")가 이 이름으로 찾는다
     @Bean(name = "ingestExecutor")
     public Executor ingestExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

@@ -10,7 +10,7 @@ metadata:
   name: ingestion-common
   namespace: binance-ingestion
 data:
-  # release 프로파일 → application-release.yml (Kafka는 내부 DNS binance-cluster-kafka-bootstrap.kafka.svc:9092)
+  # release 프로파일 → application-release.yml (Kafka는 내부 DNS binance-cluster-kafka-bootstrap.binancekafka.svc:9092)
   # 주소를 바꿔야 하면 여기에 SPRING_KAFKA_BOOTSTRAP_SERVERS를 추가해 덮어쓴다
   SPRING_PROFILES_ACTIVE: release
   LOGGING_LEVEL_COM_INGESTION: INFO

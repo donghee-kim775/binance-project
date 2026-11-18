@@ -3,7 +3,7 @@
 # 어떤 스트림을 구독할지는 Deployment가 ConfigMap으로 /config/application.yaml을 넣어 결정한다.
 #
 # 빌드 컨텍스트는 collector/ 이다 (datasource-ingestion/ 에서 실행):
-#   docker build -f deploy/Dockerfile -t ingestion-collector:0.0.1 collector
+#   docker build -f deploy/Dockerfile -t kimdonghee125/ingestion-collector:0.0.1 collector
 
 # ── 1. build ─────────────────────────────────────────────
 FROM eclipse-temurin:17-jdk AS build

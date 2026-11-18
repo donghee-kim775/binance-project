@@ -1,7 +1,8 @@
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
   name: btcusdt-topic  # 생성할 토픽 이름
+  namespace: binancekafka
   labels:
     strimzi.io/cluster: binance-cluster
 spec:

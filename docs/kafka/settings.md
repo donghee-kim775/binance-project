@@ -3,7 +3,7 @@
 지금 Kafka 클러스터가 어떻게 구성돼 있는지, 각 값을 왜 그렇게 정했는지, 그리고 이 구성에서 우려되는 지점을 차례로 정리한다. 실제 값은 아래 파일이 기준이다.
 
 - 클러스터: [kafka-cluster.yaml](../../Infra/Kafka/Kafka-Cluster/kafka-cluster.yaml), [kafka-ui.yaml](../../Infra/Kafka/Kafka-Cluster/kafka-ui.yaml)
-- kind 노드: [kind-study.yaml](../../Infra/kind-study.yaml)
+- 노드: Kubernetes 클러스터 4대 (`dclabnode1`~`4`). 처음에는 PC 한 대의 kind 클러스터([kind-study.yaml](../../Infra/kind-study.yaml))였고, 아래 "kind"가 이유로 나오는 값은 그때 정한 것이다
 - 토픽: [topics.md](topics.md) (결정 근거는 [plan/topic/plan.md](../../plan/topic/plan.md))
 - 수집 앱의 Kafka 주소: [configuration.md](../spring/configuration.md)
 
@@ -12,27 +12,27 @@
 ## 1. 현재 구성
 
 ```text
-kind 클러스터 "study" (PC 한 대, 노드 3개: control-plane 1 + worker 2)
-└── namespace kafka
+Kubernetes 클러스터 (노드 4대: dclabnode1~4, 브로커는 서로 다른 노드 3대에 하나씩)
+└── namespace binancekafka
     ├── Strimzi Operator
-    ├── Kafka "binance-cluster" (KRaft, 4.3.1)
+    ├── Kafka "binance-cluster" (KRaft, 4.2.0)
     │   └── KafkaNodePool "binance-cluster-pool": 노드 3개 (broker + controller 겸용, PVC 5Gi씩)
     ├── Entity Operator (Topic Operator, User Operator)
     └── Kafka UI (NodePort 30080)
 
 namespace binance-ingestion
-└── 수집 pod ──> binance-cluster-kafka-bootstrap.kafka.svc:9092
+└── 수집 pod ──> binance-cluster-kafka-bootstrap.binancekafka.svc:9092
 ```
 
 | 항목 | 값 |
 | --- | --- |
 | 운영 방식 | Strimzi Operator (Kafka, KafkaNodePool, KafkaTopic CRD) |
 | 메타데이터 관리 | KRaft (ZooKeeper 없음) |
-| Kafka 버전 | 4.3.1 |
+| Kafka 버전 | 4.2.0 (Strimzi 1.0.0 기본값. 4.3.1은 이 Strimzi가 지원하지 않아 고정을 뺐다) |
 | 노드 | 3개, broker + controller 겸용 |
 | 저장소 | 노드당 PVC 5Gi |
 | 리스너 | `plain` 9092, `tls` 9093 (둘 다 클러스터 내부 전용) |
-| 접속 주소 (클러스터 안) | `binance-cluster-kafka-bootstrap.kafka.svc:9092` |
+| 접속 주소 (클러스터 안) | `binance-cluster-kafka-bootstrap.binancekafka.svc:9092` |
 | 모니터링 | Kafka UI, `localhost:30080` |
 
 ---
@@ -44,7 +44,7 @@ namespace binance-ingestion
 - Kafka를 StatefulSet과 ConfigMap으로 직접 띄우면 브로커 설정, 롤링 재시작, 인증서, 토픽 생성을 전부 손으로 해야 한다.
 - Strimzi는 `Kafka`, `KafkaTopic` 같은 yaml만 적으면 Operator가 그 상태로 맞춘다. 토픽도 yaml로 관리할 수 있어 Git에 남는다.
 
-### KRaft, Kafka 4.3.1
+### KRaft, Kafka 4.2.0
 
 - Kafka 4.x는 ZooKeeper를 지원하지 않는다. 메타데이터를 Kafka 노드 안의 controller 쿼럼이 직접 관리한다.
 - 띄울 컴포넌트가 하나 줄어 kind 환경에서 자원이 덜 든다.
@@ -57,13 +57,13 @@ namespace binance-ingestion
 ### broker + controller 겸용
 
 - controller 쿼럼은 과반이 살아 있어야 동작한다. 3개면 1개 장애까지 견딘다.
-- 운영 환경에서는 controller를 따로 두는 게 일반적이지만, kind 한 대에서 노드 6개를 띄우면 자원이 부족해서 겸용으로 했다.
+- 운영 환경에서는 controller를 따로 두는 게 일반적이지만, kind 한 대에서 노드 6개를 띄우면 자원이 부족해서 겸용으로 했다. 지금은 노드 4대라 분리할 여유가 있지만 아직 그대로다.
 
 ### 저장소: `persistent-claim` 5Gi, `deleteClaim: false`
 
 - 브로커 pod가 재시작돼도 로그가 남아야 한다. 디스크가 날아가면 복제본을 처음부터 다시 받아야 한다.
 - `deleteClaim: false`는 Kafka 리소스를 지워도 PVC를 남긴다. 실수로 클러스터를 지워도 데이터가 남는다.
-- 5Gi는 kind(로컬 PC) 디스크에 맞춘 값이다. 실제 유입량은 아직 재지 않았다 (4절).
+- 5Gi는 kind(로컬 PC) 디스크에 맞춘 값이다. 4노드 클러스터로 옮긴 뒤에도 그대로다. 실제 유입량은 아직 재지 않았다 (4절).
 
 ### 리스너: 내부 전용 `plain` 9092, `tls` 9093
 
@@ -79,7 +79,7 @@ namespace binance-ingestion
 ### Kafka UI
 
 - 토픽, 파티션, 컨슈머 lag, 메시지 내용을 브라우저로 보려고 띄웠다.
-- kind 설정에서 control-plane 노드의 30080 포트를 호스트에 열어 두었다 (`extraPortMappings`). 그래서 NodePort 30080으로 바로 접속한다.
+- NodePort 30080으로 연다: `http://<노드 IP>:30080`. NodePort는 어느 노드 IP로 들어가도 된다 (kind 때는 `extraPortMappings`로 호스트에 열었다).
 
 ---
 
@@ -120,16 +120,17 @@ namespace binance-ingestion
 - 파티션은 줄일 수 없고, 늘리면 키→파티션 대응이 바뀐다. 그래서 처음에 여유 있게 잡는다.
 - Flink에서 조인하는 토픽끼리는 파티션 수를 맞춘다 (co-partitioning).
 
-### Producer 설정 (수집 앱, 예정)
+### Producer 설정 (수집 앱)
 
-`spring-kafka`가 아직 꺼져 있다. 켤 때 [KafkaConfig.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/config/KafkaConfig.java)나 `spring.kafka.producer.*`에 넣는다.
+[application.yml](../../datasource-ingestion/collector/src/main/resources/application.yml)의 `spring.kafka.producer.*`에 있다. Spring Boot가 이 값으로 `KafkaTemplate`을 만들고, [BinanceRawEventPublisher.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/kafka/BinanceRawEventPublisher.java)가 그것으로 발행한다.
 
 | 설정 | 값 | 이유 |
 | --- | --- | --- |
 | `acks` | `all` | ISR 전부(최소 2개)에 써진 뒤 성공 처리. `min.insync.replicas`와 짝이어야 의미가 있다 |
 | `enable.idempotence` | `true` | 재시도로 같은 메시지가 두 번 써지는 것을 브로커가 막는다 |
+| `compression-type` | `zstd` | 토픽 `compression.type`과 같게 해서 브로커가 다시 압축하지 않게 한다 |
 | `key-serializer` | `StringSerializer` | 키는 심볼 문자열 |
-| `value-serializer` | JSON | envelope 그대로 |
+| `value-serializer` | `StringSerializer` | envelope는 `BinanceRawEventPublisher`가 앱의 `ObjectMapper`로 JSON 문자열로 바꾼다. `@JsonProperty`(snake_case) 규칙이 그대로 적용된다 |
 
 kafka-clients 3.0부터 `acks=all`, `enable.idempotence=true`가 기본값이지만 의도를 남기려고 명시한다.
 
@@ -160,11 +161,11 @@ kafka-clients 3.0부터 `acks=all`, `enable.idempotence=true`가 기본값이지
     파티션 하나의 필요 용량 = 파티션 초당 유입량 × 원하는 보존 시간
     ```
 
-### 4.2 모든 노드가 PC 한 대 위에 있다
+### 4.2 브로커가 노드별로 나뉘는지
 
-- kind 노드 3개는 같은 PC 위의 컨테이너다. 브로커를 3대로 나눠도 PC나 Docker가 죽으면 전부 같이 죽는다.
-- 복제(RF 3)는 **브로커 pod 하나의 장애**만 막는다.
-- 노드는 3개지만 control-plane 노드에도 브로커가 뜰 수 있어서, 브로커가 노드별로 고르게 퍼지는지는 확인이 필요하다.
+- kind 때는 노드 3개가 같은 PC 위의 컨테이너라 PC가 죽으면 전부 같이 죽었다. 지금은 물리 노드 4대라 노드 하나의 장애는 복제(RF 3)로 견딘다.
+- 지금 브로커 3대는 서로 다른 노드(dclabnode1, 3, 4)에 떠 있다. 하지만 이를 강제하는 anti-affinity가 없어 재시작 때 한 노드에 두 브로커가 모일 수 있다.
+- 노드가 `local-path` 디스크를 쓰므로 브로커 pod는 처음 뜬 노드에 묶인다. 그 노드가 오래 빠지면 해당 브로커는 다른 노드에서 뜨지 못한다.
 
 ### 4.3 데이터가 Kafka에 들어오기 전에 사라질 수 있다
 
@@ -177,7 +178,7 @@ Binance ──①──> 수집 pod ──②──> Kafka 브로커 ──③
 | 구간 | 무엇이 사라지나 | 막는 장치 |
 | --- | --- | --- |
 | ① WebSocket | 연결이 끊기거나 pod가 재시작되는 동안 온 메시지 | variable-rate pod Active-Active |
-| ② pod → 브로커 | `@Async` 큐·producer 버퍼에 있던 메시지 | Active-Active, `acks=all` + idempotence (예정) |
+| ② pod → 브로커 | `@Async` 큐·producer 버퍼에 있던 메시지 | Active-Active, `acks=all` + idempotence |
 | ③ 브로커 | 브로커 1대 장애 | RF 3, `min.insync.replicas` 2 |
 
 - `ingestExecutor` 큐([AsyncConfig.java](../../datasource-ingestion/collector/src/main/java/com/ingestion/config/AsyncConfig.java))는 200개다. 꽉 차면 기본 정책(`AbortPolicy`)으로 작업을 거절하고 그 메시지는 사라진다.
@@ -205,9 +206,9 @@ Binance ──①──> 수집 pod ──②──> Kafka 브로커 ──③
 
 | 기능 | 하는 일 | 적용하지 않은 이유 |
 | --- | --- | --- |
-| Rack awareness (Strimzi `rack.topologyKey`) | 같은 파티션의 복제본을 서로 다른 zone에 둔다 | 노드가 전부 한 PC라 zone이 하나다 |
+| Rack awareness (Strimzi `rack.topologyKey`) | 같은 파티션의 복제본을 서로 다른 zone에 둔다 | 데이터센터 · 랙이 하나라 zone이 하나다 |
 | MirrorMaker 2 | 다른 Kafka 클러스터로 토픽을 비동기 복사 (DR) | 데이터센터가 하나다. 복사는 Kafka에 들어온 뒤의 일이라 수집 구간(4.3의 ①②) 유실은 막지 못한다 |
-| controller 분리 | controller 전용 노드 | kind 자원 부족 (2절) |
+| controller 분리 | controller 전용 노드 | kind 자원 부족 (2절). 4노드로 옮긴 뒤 재검토 전 |
 | 인증·ACL | 사용자별 토픽 권한 | 공개 시장 데이터만 다룬다 (4.5) |
 
 데이터센터나 zone이 2개 이상인 환경이 생기면 rack awareness부터 넣고, 리전 장애까지 견뎌야 할 때 MirrorMaker 2로 DR 클러스터를 둔다.
@@ -217,8 +218,7 @@ Binance ──①──> 수집 pod ──②──> Kafka 브로커 ──③
 ## 6. 남은 과제
 
 - **유입량 측정 후 토픽별 `retention.bytes` 배분** (4.1)
-- **`KafkaTopic` yaml 작성** ([topics.md](topics.md)의 토픽 목록)
-- **producer 연동:** `spring-kafka`를 켜고 3절의 producer 설정을 넣는다.
+- **`KafkaTopic` yaml 작성** ([topics.md](topics.md)의 토픽 목록, 지금은 markprice 1개)
 - **`ingestExecutor` 거절 정책:** 큐가 찼을 때 버릴지(지금), 호출 스레드에서 처리할지(`CallerRunsPolicy`, WebSocket 수신이 밀림) 정한다.
 - **graceful shutdown:** 종료 시 큐와 producer 버퍼를 비우고 내려가게 한다.
 - **로컬 접속용 리스너** (4.4): Kafka 연동 작업 때 정한다.

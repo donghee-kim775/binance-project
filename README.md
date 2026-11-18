@@ -60,6 +60,7 @@ flowchart LR
 | 토픽 분리 단위 | **product × 자산종류 × 스트림.** 한 토픽에는 한 스키마만. crypto와 stock은 소비자·트래픽 성격이 달라 분리, 섹터는 envelope `sector` 필드로 구분 | [topic/plan.md](plan/topic/plan.md) |
 | 토픽 이름 | `binance.<raw\|clean\|analytics>.<spot\|usdm>.<crypto\|stock>.<stream>` | [topic/plan.md](plan/topic/plan.md) |
 | 키와 파티션 | 키는 **심볼**. 조인할 토픽끼리 파티션 수를 맞춰 co-partitioning 보장 (crypto 3, stock 6) | [topic/plan.md](plan/topic/plan.md) |
+| 체크포인트 경로 | `s3://binance/flink/<계층>/<FlinkDeployment 이름>/<checkpoints\|savepoints\|ha>`. 계층은 job의 출력 단계, job을 나누면 이름으로 구분 (`flink-dedup-crypto`) | [storage/plan.md](plan/storage/plan.md) |
 | basis 조인 방식 | 윈도우 조인 대신 `KeyedCoProcessFunction`으로 최신 Spot mid를 state에 두고 markPrice가 올 때 계산 | [topic/insight_1_plan.md](plan/topic/insight_1_plan.md) |
 | 서빙 | REST 폴링 대신 WebSocket push. 접속 직후 값은 Redis 캐시로, Gateway 간 fan-out은 Redis Pub/Sub | [servingapp/plan.md](servingapp/plan.md) |
 
@@ -91,12 +92,13 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 ├── plan/                  설계 결정 기록
 │   ├── ingestion/         Ingestion Pod 구성, HA, 중복 제거
 │   ├── topic/             Kafka 토픽 설계, Insight 1 토픽 흐름
-│   └── consumer/          (예정)
+│   └── storage/           MinIO 체크포인트 경로 규칙
+├── consumer/              Flink 앱 (flink-app: dedup job, flink-test: 로컬 테스트), 설계 flink-design.md
 ├── datasource-ingestion/  Ingestion 앱
 │   ├── collector/         수집 앱 (Spring Boot). raw만 envelope로 감싸 발행
 │   ├── deploy/            Dockerfile, variable-rate / fixed-rate K8s 매니페스트, 설정→코드 매핑
 │   └── core/ app/ config/ 예전 목표 구조의 자리 (현재 미사용)
-├── Infra/                 kind 클러스터, Strimzi Kafka, Flink Operator 설치
+├── Infra/                 Strimzi Kafka, Flink Operator, MinIO, ClickHouse 설치, Monitoring 정리
 ├── Insights/              인사이트 카탈로그와 인사이트별 구현 계획·분석 노트북
 └── servingapp/            서빙 계층 설계와 POC
 ```
@@ -129,21 +131,24 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 - [x] envelope(`source`, `product`, `asset_class`, `sector`, `stream`, `symbol`, `event_time`,
       `receive_time`, `collector_id`, `payload`) 생성. payload는 원본 그대로
 - [x] 공용 이미지와 variable-rate / fixed-rate 매니페스트 ([deploy/](datasource-ingestion/deploy/))
-- [ ] Kafka Producer 연동 (`spring-kafka`, `KafkaTemplate`). 지금은 토픽 · 키를 로그로만 남김
+- [x] Kafka Producer 연동 (`spring-boot-starter-kafka`, `KafkaTemplate`, `acks=all` · idempotence · zstd)
 - [ ] 같은 심볼의 메시지 순서 보장 (`@Async` 스레드풀이 순서를 섞을 수 있음)
 - [ ] WebSocket 클라이언트 고도화 (exponential backoff, 24시간 커넥션 만료 전 make-before-break)
-- [ ] kind 클러스터 배포 검증 (Active-Active 노드 분산, 페일오버)
+- [ ] 클러스터 배포 검증 (Active-Active 노드 분산, 페일오버). spot-sov 2 pod → dedup으로 raw : clean ≈ 2 : 1 확인 (2026-11-18)
 - [ ] Ingestion metric 노출 (`binance_ws_connected`, `binance_event_lag_ms` 등)
 
 #### A-2. Kafka · 스트림 처리 인프라
 
-- [x] kind 클러스터 구성 (control-plane 1 + worker 2, [kind-study.yaml](Infra/kind-study.yaml))
-- [x] Strimzi Kafka 클러스터 매니페스트 (KRaft, Kafka 4.3.1, 브로커 3, [kafka-cluster.yaml](Infra/Kafka/Kafka-Cluster/kafka-cluster.yaml))
+- [x] kind 클러스터 구성 (control-plane 1 + worker 2, [kind-study.yaml](Infra/kind-study.yaml)). 초기 로컬 환경
+- [x] 4노드 클러스터로 이전 (dclabnode1~4, Kubernetes 1.28.6, 이미지는 Docker Hub)
+- [x] Strimzi Kafka 클러스터 매니페스트 (KRaft, Kafka 4.2.0, 브로커 3, [kafka-cluster.yaml](Infra/Kafka/Kafka-Cluster/kafka-cluster.yaml))
 - [x] Kafka UI (NodePort 30080, [kafka-ui.yaml](Infra/Kafka/Kafka-Cluster/kafka-ui.yaml))
 - [x] 토픽 이름 규칙 · 키 · 파티션 · 보존 정책 확정
-- [ ] 토픽별 Strimzi `KafkaTopic` yaml 작성 (`Infra/Kafka/Kafka-Topic/binance/{raw,clean,analytics}/`)
+- [x] 토픽별 Strimzi `KafkaTopic` yaml 작성 (`Infra/Kafka/Kafka-Topic/binance/{raw,clean,analytics}/`)
 - [x] `retention.bytes`를 브로커 디스크(5Gi)에 맞게 재설정 (파티션당 32MiB, 세그먼트 16MiB, [settings.md](docs/kafka/settings.md))
-- [ ] cert-manager + Flink Kubernetes Operator 설치
+- [x] cert-manager + Flink Kubernetes Operator 설치 (Operator 1.16.1, webhook 끔, [Flink-Install](Infra/Flink-Install/README.md))
+- [x] MinIO 체크포인트 저장소 (분산 4노드, [MinIO](Infra/MinIO/README.md), 경로 규칙 [storage/plan.md](plan/storage/plan.md))
+- [x] Flink dedup job 배포 (raw → clean, `spot.crypto.bookticker` 경로 확인)
 - [ ] Schema Registry 도입 여부 결정 (Avro/Protobuf vs JSON)
 - [ ] 가격/수량 필드 decimal 타입 처리 정책 확정
 
@@ -161,7 +166,7 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 
 #### A-5. 운영 고도화
 
-- [ ] Prometheus/Grafana 운영 metric 대시보드
+- [ ] Prometheus/Grafana 운영 metric 대시보드 (볼 지표 정리: [metrics.md](Infra/Monitoring/metrics.md), 앱 메트릭 연결은 아직)
 - [ ] 실제 유입량 측정 후 보존 기간·디스크 재계산
 - [ ] 단계별 지연 측정 (`receive_time` → raw → clean → analytics)
 - [ ] 부하 테스트 (depth@100ms on/off 비교, 배치 삽입 전략 비교)
@@ -223,9 +228,20 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 | | [settings.md](docs/kafka/settings.md) | 현재 클러스터 구성과 설정 이유, 우려 지점 (디스크, 단일 PC, 수집 구간 유실 등) |
 | | [kafkaTopicsREADME.md](docs/kafka/kafkaTopicsREADME.md) | 초기 토픽 설계 초안과 조인 아이디어 (현재 토픽 설계는 [topic/plan.md](plan/topic/plan.md)) |
 | `notes/` | [collectorInsightsREADME.md](docs/notes/collectorInsightsREADME.md) | 시장별 스키마 차이, 토픽/키 설계 시 주의점 |
+| | [flinkDedupCodeReadingREADME.md](docs/notes/flinkDedupCodeReadingREADME.md) | Flink dedup job 코드 읽는 순서 (yaml → main → 레코드 흐름) |
+| | [flinkDedupRuntimeFlowREADME.md](docs/notes/flinkDedupRuntimeFlowREADME.md) | dedup job 5단계의 런타임 흐름 (스레드 · keyBy 셔플 · state · 체크포인트 barrier) |
 | `spring/` | [configuration.md](docs/spring/configuration.md) | 설정 출처와 탐색 순서, 프로파일(local/release), 환경변수 이름 규칙, 코드에서 값 받는 법 |
 
 [docs/streams/poc/](docs/streams/poc/)에는 각 시장 WebSocket을 실제로 연결해본 검증용 Jupyter 노트북이 있다.
+
+## Study
+
+프로젝트를 진행하면서 공부한 내용을 Notion에 정리했다. 저장소의 설계 문서(`plan/`, `docs/`)는 결정과 근거를, Notion은 그 바탕이 된 개념 학습을 다룬다.
+
+| 주제 | 노트 | 내용 |
+| --- | --- | --- |
+| Apache Flink | [Apache Flink (Notion)](https://youthful-yew-08d.notion.site/Apache-Flink-3e05c4826975802a96a2e90866f8a8ad) | Flink 개념과 동작 공부 정리 |
+| Binance | [Binance project (Notion)](https://youthful-yew-08d.notion.site/Binance-project-3c55c4826975807994bded2381a86c0b) | Binance 시장 · API · WebSocket 공부 정리 |
 
 ## Insights
 
@@ -244,9 +260,11 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 
 | 영역 | 기술 |
 | --- | --- |
-| 클러스터 | Kubernetes (kind), cert-manager |
-| 메시징 | Apache Kafka 4.3.1 (Strimzi Operator, KRaft), Kafka UI |
-| 스트림 처리 | Apache Flink (Flink Kubernetes Operator 1.12) |
+| 클러스터 | Kubernetes 1.28.6 (노드 4대, 초기에는 kind), cert-manager |
+| 메시징 | Apache Kafka 4.2.0 (Strimzi Operator, KRaft), Kafka UI |
+| 스트림 처리 | Apache Flink 2.2.1 (Flink Kubernetes Operator 1.16.1) |
+| 체크포인트 저장소 | MinIO (커뮤니티 fork SILO) |
+| 모니터링 | Prometheus, Grafana (kube-prometheus-stack) |
 | Ingestion | Java 17, Spring Boot 4, JDK `HttpClient` WebSocket |
 | 저장 · 캐시 | ClickHouse, Redis |
 | 서빙 · 화면 | WebSocket Gateway, 웹 대시보드 |
@@ -274,7 +292,7 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 - **분석 엔진 표기 통일**: [servingapp/plan.md](servingapp/plan.md)는 Kafka Streams와 이전 토픽
   이름(`market.analytics.basis`)을 기준으로 쓰여 있다. 현재 설계(Flink,
   `binance.analytics.crypto.basis`)에 맞춰 고친다. ([1_1_plan.md](Insights/1.spot_futures_basis/1_1_plan.md)는 반영 완료)
-- **Flink 앱 시작**: dedup(`raw` → `clean`)과 basis join을 별도 앱으로 만든다. 설계는
+- **basis join job**: dedup(`raw` → `clean`)은 배포했다. basis join을 다음 Flink job으로 만든다. 설계는
   [insight_1_plan.md](plan/topic/insight_1_plan.md)에 있다.
 - **datasource-ingestion 빈 폴더 정리**: `core/`, `app/`, `config/`는 예전 목표 구조의 자리로
   `.gitkeep`만 있다. 특히 `core/dedup/`, `core/parser/`는 현재 방향(dedup 없음, 스트림별 파서 없음)과

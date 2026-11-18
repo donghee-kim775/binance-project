@@ -1,0 +1,5 @@
+# Strimzi Operator, Kafka 클러스터, kafka-ui 모두 binancekafka 네임스페이스에 배포
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: binancekafka

@@ -1,0 +1,42 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.consumer'
+version = '0.0.1'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    flinkVersion = '2.2.1'
+}
+
+dependencies {
+    implementation "org.apache.flink:flink-streaming-java:${flinkVersion}"
+    // 로컬 실행(MiniCluster)에 필요하다. 클러스터에 배포할 때는 Flink 이미지에 이미 들어 있다
+    implementation "org.apache.flink:flink-clients:${flinkVersion}"
+    implementation 'org.apache.flink:flink-connector-kafka:5.0.0-2.2'
+    // 커넥터 pom에서 provided라 직접 넣는다 (DeliveryGuarantee 등)
+    implementation "org.apache.flink:flink-connector-base:${flinkVersion}"
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.22.4'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.17'
+}
+
+application {
+    mainClass = 'com.consumer.flinktest.DedupTestJob'
+    // Java 17에서 Flink(Kryo)가 JDK 내부 클래스에 접근할 수 있게 연다
+    applicationDefaultJvmArgs = [
+        '-Xmx768m',
+        '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.base/java.util=ALL-UNNAMED',
+    ]
+}

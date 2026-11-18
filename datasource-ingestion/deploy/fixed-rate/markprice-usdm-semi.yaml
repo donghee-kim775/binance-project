@@ -55,8 +55,8 @@ spec:
         runAsNonRoot: true
       containers:
         - name: collector
-          image: ingestion-collector:0.0.1
-          imagePullPolicy: IfNotPresent   # kind load로 넣은 로컬 이미지를 사용
+          image: kimdonghee125/ingestion-collector:0.0.1
+          imagePullPolicy: IfNotPresent   # Docker Hub(kimdonghee125)에서 받는다. 태그를 올려서 배포한다
           envFrom:
             - configMapRef:
                 name: ingestion-common

@@ -16,7 +16,7 @@ import tools.jackson.databind.JsonNode;
  *                                   파싱 전에 찍는다
  * - collectorId                   : pod 이름. Active-Active에서 어느 pod가 보낸 메시지인지 추적한다
  */
-public record EventEnvelope(
+public record BinanceEventEnvelope(
         String source,
         String product,
         @JsonProperty("asset_class") String assetClass,

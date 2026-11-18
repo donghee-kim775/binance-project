@@ -8,8 +8,8 @@ import org.springframework.stereotype.Component;
 
 import com.ingestion.config.BinanceProperties;
 import com.ingestion.config.BinanceProperties.Subscription.StreamSpec;
-import com.ingestion.kafka.RawEventPublisher;
-import com.ingestion.model.EventEnvelope;
+import com.ingestion.kafka.BinanceRawEventPublisher;
+import com.ingestion.model.BinanceEventEnvelope;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -30,17 +30,17 @@ public class MarketDataIngestService {
 
     private static final Logger log = LoggerFactory.getLogger(MarketDataIngestService.class);
 
-    private final RawEventPublisher eventPublisher;
+    private final BinanceRawEventPublisher binanceRawEventPublisher;
     private final ObjectMapper objectMapper;
     private final BinanceProperties.Subscription subscription;
     private final String collectorId;
 
     // collectorId: Deployment가 넣는 COLLECTOR_ID(pod 이름) → 없으면 HOSTNAME → 로컬 실행이면 "local"
-    public MarketDataIngestService(RawEventPublisher eventPublisher,
+    public MarketDataIngestService(BinanceRawEventPublisher binanceRawEventPublisher,
                                    ObjectMapper objectMapper,
                                    BinanceProperties.Subscription subscription,
                                    @Value("${COLLECTOR_ID:${HOSTNAME:local}}") String collectorId) {
-        this.eventPublisher = eventPublisher;
+        this.binanceRawEventPublisher = binanceRawEventPublisher;
         this.objectMapper = objectMapper;
         this.subscription = subscription;
         this.collectorId = collectorId;
@@ -48,11 +48,14 @@ public class MarketDataIngestService {
 
     // Async(ingestExecutor) 붙이는 이유 :
     // WebSocket 콜백 스레드에서 직접 파싱하면, 파싱이 느려질 경우 다음 메시지 수신을 막아버린다.
+    // [호출] BinanceStreamClient.onText → CollectorRunner의 람다 — 메시지마다
+    //        @Async 프록시가 호출을 가로채 ingestExecutor 큐에 넣고, 호출한 WebSocket 스레드는 바로 돌아간다
+    // [스레드] ingest-async-N (AsyncConfig.ingestExecutor)
     @Async("ingestExecutor")
     public void onRaw(StreamSpec spec, String raw, long receiveTime) {
         try {
             JsonNode data = unwrap(objectMapper.readTree(raw));
-            EventEnvelope envelope = toEnvelope(spec, data, receiveTime);
+            BinanceEventEnvelope envelope = toEnvelope(spec, data, receiveTime);
 
             log.info("[{}] {} {} event_time={}",
                     subscription.group(), envelope.stream(), envelope.symbol(), envelope.eventTime());
@@ -60,7 +63,7 @@ public class MarketDataIngestService {
             if (log.isDebugEnabled()) {
                 log.debug("envelope={}", objectMapper.writeValueAsString(envelope));
             }
-            eventPublisher.publish(spec.topic(), envelope);
+            binanceRawEventPublisher.publish(spec.topic(), envelope); // [다음] BinanceRawEventPublisher.publish
         } catch (Exception e) {
             log.error("failed to handle {} message: {}", spec.stream(), raw, e);
         }
@@ -75,9 +78,10 @@ public class MarketDataIngestService {
 
     // ── envelope 생성 ─────────────────────────────────────────
     // * Spot bookTicker에는 이벤트 시각(E)이 없다 → eventTime = null
-    private EventEnvelope toEnvelope(StreamSpec spec, JsonNode data, long receiveTime) {
+    private BinanceEventEnvelope toEnvelope(StreamSpec spec, JsonNode data, long receiveTime) {
         JsonNode eventTime = data.get("E");
-        return new EventEnvelope(
+        
+        return new BinanceEventEnvelope(
                 "binance",
                 subscription.product(),
                 subscription.assetClass(),
