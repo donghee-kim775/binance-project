@@ -34,15 +34,15 @@ spec:
     execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION  # 취소해도 마지막 체크포인트 보관
 
     # 체크포인트 저장소
-    execution.checkpointing.dir: s3://binance/checkpoints/flink-dedup
-    execution.checkpointing.savepoint-dir: s3://binance/savepoints/flink-dedup  # upgradeMode: savepoint에 필요
+    execution.checkpointing.dir: s3://binance/flink/clean/flink-dedup/checkpoints
+    execution.checkpointing.savepoint-dir: s3://binance/flink/clean/flink-dedup/savepoints  # upgradeMode: savepoint에 필요
     s3.endpoint: http://minio.binance-storage.svc:9000
     s3.path.style.access: "true"                                # MinIO는 버킷을 경로(/<버킷>)로 찾음
 
     # JobManager HA: leader 선출 · 마지막 체크포인트 위치를 ConfigMap + MinIO에 남긴다
     # → JobManager pod가 다시 떠도 체크포인트에서 이어감. jobManager.replicas > 1(standby)의 전제 조건
     high-availability.type: kubernetes
-    high-availability.storageDir: s3://binance/ha/flink-dedup
+    high-availability.storageDir: s3://binance/flink/clean/flink-dedup/ha
 
   jobManager:
     replicas: 1   # 2로 하면 standby가 떠 있다가 leader가 죽으면 바로 넘겨받음 (메모리 1Gi 추가)

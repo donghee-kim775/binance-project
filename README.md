@@ -60,6 +60,7 @@ flowchart LR
 | 토픽 분리 단위 | **product × 자산종류 × 스트림.** 한 토픽에는 한 스키마만. crypto와 stock은 소비자·트래픽 성격이 달라 분리, 섹터는 envelope `sector` 필드로 구분 | [topic/plan.md](plan/topic/plan.md) |
 | 토픽 이름 | `binance.<raw\|clean\|analytics>.<spot\|usdm>.<crypto\|stock>.<stream>` | [topic/plan.md](plan/topic/plan.md) |
 | 키와 파티션 | 키는 **심볼**. 조인할 토픽끼리 파티션 수를 맞춰 co-partitioning 보장 (crypto 3, stock 6) | [topic/plan.md](plan/topic/plan.md) |
+| 체크포인트 경로 | `s3://binance/flink/<계층>/<FlinkDeployment 이름>/<checkpoints\|savepoints\|ha>`. 계층은 job의 출력 단계, job을 나누면 이름으로 구분 (`flink-dedup-crypto`) | [storage/plan.md](plan/storage/plan.md) |
 | basis 조인 방식 | 윈도우 조인 대신 `KeyedCoProcessFunction`으로 최신 Spot mid를 state에 두고 markPrice가 올 때 계산 | [topic/insight_1_plan.md](plan/topic/insight_1_plan.md) |
 | 서빙 | REST 폴링 대신 WebSocket push. 접속 직후 값은 Redis 캐시로, Gateway 간 fan-out은 Redis Pub/Sub | [servingapp/plan.md](servingapp/plan.md) |
 

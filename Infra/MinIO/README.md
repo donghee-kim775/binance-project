@@ -10,7 +10,7 @@ Flink 체크포인트 · savepoint를 저장하는 S3 호환 저장소다. dedup
 | 클러스터 안 주소 | `http://minio.binance-storage.svc:9000` (S3 API), 9001 (웹 콘솔) |
 | 클러스터 밖 주소 (NodePort) | `http://<노드 IP>:30901` (웹 콘솔), `http://<노드 IP>:30902` (S3 API) |
 | 계정 | Secret `minio-auth` (`root-user`, `root-password`) |
-| 버킷 | `binance` (Job `minio-create-buckets`가 만든다). 안에서 용도 · job별로 경로를 나눈다: `checkpoints/`, `savepoints/`, `ha/` |
+| 버킷 | `binance` (Job `minio-create-buckets`가 만든다). 경로는 `flink/<계층>/<job>/<checkpoints\|savepoints\|ha>` ([plan/storage/plan.md](../../plan/storage/plan.md)) |
 | 매니페스트 | [minio.yaml](minio.yaml) |
 
 ## 설치
@@ -30,17 +30,17 @@ Job은 끝나고 10분 뒤 지워진다. 버킷을 다시 만들어야 하면 `k
 
 PC에서 `mc`로 붙을 때는 S3 API 포트를 쓴다: `mc alias set binance http://<노드 IP>:30902 <아이디> <비밀번호>`.
 
-## Flink에서 쓰기 (dedup.yaml에 적용, 배포 검증 전)
+## Flink에서 쓰기 (dedup.yaml에 적용)
 
-경로는 job마다 나눈다: `s3://binance/checkpoints/<job 이름>`, `s3://binance/savepoints/<job 이름>`, `s3://binance/ha/<job 이름>` (JobManager HA).
+경로는 `s3://binance/flink/<계층>/<job 이름>/<checkpoints|savepoints|ha>`다. 계층은 job이 쓰는 토픽의 단계(raw/clean/analytics), job 이름은 FlinkDeployment 이름이다. 규칙과 이유는 [plan/storage/plan.md](../../plan/storage/plan.md).
 
 `consumer/flink-app/deploy/dedup.yaml`에 넣을 것:
 
 ```yaml
 spec:
   flinkConfiguration:
-    execution.checkpointing.dir: s3://binance/checkpoints/flink-dedup
-    execution.checkpointing.savepoint-dir: s3://binance/savepoints/flink-dedup
+    execution.checkpointing.dir: s3://binance/flink/clean/flink-dedup/checkpoints
+    execution.checkpointing.savepoint-dir: s3://binance/flink/clean/flink-dedup/savepoints
     s3.endpoint: http://minio.binance-storage.svc:9000
     s3.path.style.access: "true"          # MinIO는 버킷을 도메인이 아니라 경로로 찾는다
   podTemplate:

@@ -242,7 +242,7 @@ spotMid.keyBy(SpotMid::symbol)
 | 자원 | JobManager 1024m, TaskManager 1536m, 슬롯 1, managed memory 0.1 | state가 heap에 있어 RocksDB용 managed memory가 거의 필요 없다 |
 | JobManager HA | `high-availability.type: kubernetes`, storageDir는 MinIO, `jobManager.replicas: 1` | JobManager가 마지막 체크포인트 위치를 메모리에만 들고 있으면 pod가 다시 뜰 때 잃는다. HA가 ConfigMap과 MinIO에 남겨 이어받게 한다. standby(replicas 2)는 복구를 몇십 초 줄이는 대신 1Gi를 더 써서 아직 두지 않는다 |
 | upgradeMode | savepoint | 재배포 때 Operator가 savepoint를 찍고 새 job이 거기서 시작해 state와 offset이 이어진다 |
-| 체크포인트 저장소 | MinIO `s3://binance/checkpoints/flink-dedup`, savepoint는 `s3://binance/savepoints/flink-dedup` | 경로 · 주소 · 계정은 `dedup.yaml`의 `flinkConfiguration`과 env에, 간격 · timeout · 보관 정책도 같은 `flinkConfiguration`에 둔다. Operator가 savepoint 경로를 `flinkConfiguration`에서 읽고, 값을 바꿀 때 이미지를 다시 빌드하지 않기 위해서다 ([Infra/MinIO/](../Infra/MinIO/README.md)) |
+| 체크포인트 저장소 | MinIO `s3://binance/flink/clean/flink-dedup/checkpoints`, savepoint는 `s3://binance/flink/clean/flink-dedup/savepoints` | 경로 · 주소 · 계정은 `dedup.yaml`의 `flinkConfiguration`과 env에, 간격 · timeout · 보관 정책도 같은 `flinkConfiguration`에 둔다. Operator가 savepoint 경로를 `flinkConfiguration`에서 읽고, 값을 바꿀 때 이미지를 다시 빌드하지 않기 위해서다 ([Infra/MinIO/](../Infra/MinIO/README.md)) |
 | 테스트 | [flink-test](flink-test/)는 MiniCluster를 pod 하나로 띄움 (Operator 없이) | Operator 없이 빠르게 job 동작만 확인한다 |
 | 체크포인트 | 10초, timeout 60초, 최소 간격 5초, 연속 실패 3번까지 허용, 취소해도 마지막 체크포인트 보관 | 완료될 때 Kafka offset이 커밋된다 |
 | sink 보장 | at-least-once | exactly-once는 Kafka 트랜잭션이 필요하고 읽는 쪽도 `read_committed`로 맞춰야 한다. dedup 결과가 재시작 때 한 번 더 쓰이는 정도는 감수한다 |

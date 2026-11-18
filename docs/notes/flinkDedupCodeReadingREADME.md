@@ -189,7 +189,7 @@ JobManager pod 죽음
 | `timeout` | 1min | 이보다 오래 걸리면 그 체크포인트는 실패 |
 | `min-pause` | 5s | 체크포인트 사이 최소 휴식 |
 | `externalized-checkpoint-retention` | `RETAIN_ON_CANCELLATION` | job을 취소해도 마지막 체크포인트가 MinIO에 남음 |
-| `dir`, `savepoint-dir` | `s3://<버킷>/checkpoints/flink-dedup`, `.../savepoints/flink-dedup` | 저장 위치. job마다 경로를 나눔 |
+| `dir`, `savepoint-dir` | `s3://binance/flink/clean/flink-dedup/checkpoints`, `.../savepoints` | 저장 위치. `flink/<계층>/<job>/<종류>` 규칙 ([plan/storage/plan.md](../../plan/storage/plan.md)) |
 
 - MinIO 주소는 `s3.endpoint`가 정한다. 이 값이 없으면 AWS로 간다. 계정은 Secret `minio-auth` → env `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`로 들어간다. 이 이름은 S3 클라이언트가 찾는 이름이라 MinIO를 써도 그대로 쓴다.
 - `main()`은 JobManager에서만 돌지만 체크포인트 파일은 TaskManager도 직접 쓴다. 그래서 S3 설정은 코드가 아니라 모든 pod가 읽는 `flinkConfiguration`에 있어야 한다.

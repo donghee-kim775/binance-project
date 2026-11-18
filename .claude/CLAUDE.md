@@ -7,8 +7,8 @@ Binance WebSocket 시장 데이터를 Kafka로 수집하고 Flink로 분석하�
 - `datasource-ingestion/collector/`: 수집 앱 (Spring Boot 4, Java 17). **raw 이벤트를 Kafka로 보내기만 한다.** dedup, 조인, 분석은 하지 않는다.
 - `datasource-ingestion/deploy/`: 수집 앱 Dockerfile과 K8s 매니페스트 (kustomize). 설정→코드 매핑은 `deploy/mapping.md`
 - 분석(dedup, basis join 등)은 **별도 Flink 앱**에서 한다. 수집 앱에 넣지 않는다.
-- `plan/`: 설계 결정 기록 (`ingestion/`, `topic/`, `consumer/`)
-- `Infra/`: kind 클러스터, Strimzi Kafka, Flink Operator
+- `plan/`: 설계 결정 기록 (`ingestion/`, `topic/`, `consumer/`, `storage/`)
+- `Infra/`: kind 클러스터, Strimzi Kafka, Flink Operator, MinIO, ClickHouse, Monitoring(Prometheus · Grafana)
 - `docs/`: Binance API 조사 (`binance-api/`, `streams/`), 수집 심볼 표와 섹터 분류 (`symbols/0TickerInfoTable.md`, `symbols/cryptoSectorREADME.md`), Kafka 토픽 목록과 설정 이유 (`kafka/`), 초기 메모 (`notes/`), Spring Boot 동작 정리 (`spring/`)
 - `Insights/`: 인사이트 카탈로그와 인사이트별 계획
 - `servingapp/`: 서빙 계층 설계
@@ -16,6 +16,7 @@ Binance WebSocket 시장 데이터를 Kafka로 수집하고 Flink로 분석하�
 ## 설계 규칙
 
 - **토픽 이름:** `binance.<raw|clean|analytics>.<spot|usdm>.<crypto|stock>.<stream>` (소문자, 숫자, `.`만)
+- **MinIO 경로:** `s3://binance/flink/<raw|clean|analytics>/<FlinkDeployment 이름>/<checkpoints|savepoints|ha>`. 계층은 job이 쓰는 토픽의 단계. job을 나누면 이름에 넣는다 (`flink-dedup-crypto`)
 - **Kafka 키:** 심볼 (`BTCUSDT`). product와 자산 종류는 토픽 이름에 있으므로 키에 넣지 않는다.
 - **payload:** Binance 원본을 그대로 envelope에 넣는다. 필드를 고치지 않는다.
 - **USD-M 경로 접두어:** `/public` = bookTicker, depth / `/market` = aggTrade, markPrice. 틀리면 연결은 되지만 메시지가 오지 않는다.
