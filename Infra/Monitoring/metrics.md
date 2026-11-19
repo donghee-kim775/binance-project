@@ -20,6 +20,7 @@
 | 유입량 | 스트림별 WebSocket 수신 건수 | 직접 만드는 카운터 | 수집 앱 코드 | 연결된 스트림은 모두 0보다 큼 | 🔧 |
 | 유입량 | 토픽 초당 메시지 수 (raw · clean) | `rate(kafka_topic_partition_current_offset[1m])` 를 `topic`으로 합침 | kafka-exporter | raw ≈ clean × 2 | ✅ |
 | 유입량 | 파티션별 최신 offset | `kafka_topic_partition_current_offset` | kafka-exporter | 파티션이 고르게 증가 (지금은 BTCUSDT 하나라 파티션 2만 증가) | ✅ |
+| 처리량 | Flink 처리 속도 (커밋 기준) | `rate(kafka_consumergroup_current_offset[1m])` 를 `topic`으로 합침 | kafka-exporter | ≈ 유입 (10초 단위로 거침) | ✅ |
 | 처리량 | 연산자 초당 입력 · 출력 | `..._operator_numRecordsInPerSecond`, `..._operator_numRecordsOutPerSecond` | Flink reporter | parse 입력 = 출력, dedup 출력 ≈ 입력 ÷ 2 | 🔧 |
 | 처리량 | dedup 비율 (입력 ÷ 출력) | 위 두 값으로 계산 | Flink reporter | ≈ 2.0 | 🔧 |
 | 처리량 | sink 전송 건수 · 에러 | `..._operator_numRecordsSend`, `..._operator_numRecordsSendErrors` | Flink reporter (KafkaSink) | 에러 0 | 🔧 |
@@ -53,8 +54,8 @@
 
 2026-11-18에 spot-sov만 켜고 60초 동안 잰 값: raw +21,888, clean +10,865, 비율 2.015.
 
-**raw 초당 메시지 수와 consumer lag는 지금 Grafana에서 볼 수 있다.** 대시보드 이름은 `Binance / raw 유입 · Flink lag`이고, 정의와 패널별 계산 방법은 [dashboards/binance-raw-ingest/](dashboards/binance-raw-ingest/)에 있다. 데이터는 Kafka Exporter에서 온다.
-- lag는 체크포인트 간격(10초)마다 톱니처럼 오르내린다. 그래서 "계속 늘지 않음"은 패널 **lag 5분 증가량**으로 본다. 이 패널은 5분 최소값끼리 빼서 톱니를 지운 값이다.
+**raw 유입 · Flink 처리 속도 · consumer lag는 지금 Grafana에서 볼 수 있다.** 대시보드 이름은 `Binance / raw 유입 vs Flink 처리`이고, 정의와 패널별 계산 방법은 [dashboards/binance-raw-ingest/](dashboards/binance-raw-ingest/)에 있다. 데이터는 Kafka Exporter에서 온다.
+- lag는 체크포인트 간격(10초)마다 톱니처럼 오르내린다. 그래서 "계속 늘지 않음"은 패널 **Lag 증가 속도**(유입 − 처리, 10분 평균)로 본다.
 - lag가 `-1`이면 한 번도 커밋하지 않은 빈 파티션이다. 쿼리에서 `clamp_min(…, 0)`으로 0으로 바꾼다.
 
 ## 1. 수집 앱 (`binance-ingestion`)

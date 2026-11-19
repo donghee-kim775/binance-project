@@ -46,7 +46,7 @@ Grafana pod에는 sidecar(`grafana-sc-dashboard`)가 있다. sidecar는 모든 n
 
 | 폴더 | 대시보드 | 지표 출처 |
 | --- | --- | --- |
-| [binance-raw-ingest/](dashboards/binance-raw-ingest/) | `Binance / raw 유입 · Flink lag`: raw 초당 메시지 (전체 · 토픽별 · 파티션별), consumer lag, lag 5분 증가량 | Kafka Exporter |
+| [binance-raw-ingest/](dashboards/binance-raw-ingest/) | `Binance / raw 유입 vs Flink 처리`: 유입 · 처리 속도, consumer lag (records · 초), lag 증가 속도, backpressure. 전체와 파티션별 | Kafka Exporter |
 
 ## 지금 단순화한 것
 
