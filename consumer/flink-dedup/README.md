@@ -1,4 +1,4 @@
-# flink-app
+# flink-dedup
 
 Kafka raw 토픽을 읽어 처리하는 Flink 앱이다. jar 하나에 job마다 main 클래스가 하나씩 있다. 지금은 **dedup job** 하나다. 설계 이유는 [../flink-design.md](../flink-design.md)에 있다.
 
@@ -11,7 +11,7 @@ binance.raw.<...>  ──> DedupKeyParser ──keyBy(symbol|id)──> DedupFun
 ## 구조
 
 ```text
-flink-app/
+flink-dedup/
 ├── Dockerfile                        # flink:2.2.1-java17 + /opt/flink/usrlib/flink-app.jar
 ├── deploy/dedup.yaml                 # FlinkDeployment (namespace binance-processing, entryClass = DedupJob)
 └── src/main/java/com/consumer/
@@ -48,7 +48,7 @@ Operator 설치는 [Infra/Flink-Install/README.md](../../Infra/Flink-Install/REA
 kubectl apply -f Infra/Kafka/Kafka-Topic/binance/raw/crypto -f Infra/Kafka/Kafka-Topic/binance/raw/stock \
               -f Infra/Kafka/Kafka-Topic/binance/clean/crypto -f Infra/Kafka/Kafka-Topic/binance/clean/stock
 
-# 이미지 · 배포 (consumer/flink-app/ 에서)
+# 이미지 · 배포 (consumer/flink-dedup/ 에서)
 docker build -t kimdonghee125/flink-app:0.0.3 .
 docker push kimdonghee125/flink-app:0.0.3
 kubectl apply -f deploy/dedup.yaml

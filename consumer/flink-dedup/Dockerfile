@@ -1,7 +1,7 @@
 # Flink 앱 이미지. Flink Operator가 이 이미지로 JobManager · TaskManager pod를 띄운다.
 # job마다 main 클래스가 하나이고, 어떤 job을 실행할지는 FlinkDeployment의 entryClass가 정한다 (지금은 dedup job만 있다).
 #
-# 빌드 (consumer/flink-app/ 에서):
+# 빌드 (consumer/flink-dedup/ 에서):
 #   docker build -t kimdonghee125/flink-app:0.0.3 .
 
 # ── 1. build ─────────────────────────────────────────────

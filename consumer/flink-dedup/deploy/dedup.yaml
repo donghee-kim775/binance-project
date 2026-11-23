@@ -1,6 +1,6 @@
 # Flink dedup job — raw 9개 → clean 9개 (consumer/flink-design.md)
 # Flink Operator가 이 리소스를 보고 JobManager · TaskManager pod를 띄우고 job을 제출한다.
-#   docker build -t kimdonghee125/flink-app:0.0.3 .          (consumer/flink-app/ 에서)
+#   docker build -t kimdonghee125/flink-app:0.0.3 .          (consumer/flink-dedup/ 에서)
 #   docker push kimdonghee125/flink-app:0.0.3
 #   kubectl apply -f deploy/dedup.yaml
 #

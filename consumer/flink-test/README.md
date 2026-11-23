@@ -106,7 +106,7 @@ clean에서 받은 건수: 100 / 기대 100
 누락: 0건
 ```
 
-> 실제 dedup job은 [../flink-app/](../flink-app/)에 있다. 둘 다 `binance.clean.spot.crypto.bookticker`에 쓰므로 Deployment를 **같이 띄우지 않는다** .
+> 실제 dedup job은 [../flink-dedup/](../flink-dedup/)에 있다. 둘 다 `binance.clean.spot.crypto.bookticker`에 쓰므로 Deployment를 **같이 띄우지 않는다** .
 
 ## 테스트에서 단순화한 것
 
