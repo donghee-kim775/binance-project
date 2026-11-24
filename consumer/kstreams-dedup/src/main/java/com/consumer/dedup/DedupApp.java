@@ -43,7 +43,7 @@ public class DedupApp {
 
         List<DedupRoute> routes = new ArrayList<>();
         for (String arg : args) {
-            DedupRoute route = DedupRoute.parse(arg);
+            DedupRoute route = DedupRoute.parse(arg); // ex) routeId, rawTopic, cleanTopic, eventIdField
             routes.add(route.withCleanSuffix(cleanSuffix));
         }
 
@@ -90,6 +90,7 @@ public class DedupApp {
         }
     }
 
+    // Kafka 설정
     static Properties config() {
         Properties p = new Properties();
         p.put(StreamsConfig.APPLICATION_ID_CONFIG, APPLICATION_ID);
@@ -100,21 +101,30 @@ public class DedupApp {
 
         // 스레드 수. task(= 경로 수 × 파티션 3)를 이 pod 안 스레드와 다른 pod가 나눠 가진다
         p.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG, env("NUM_STREAM_THREADS", "1"));
+
         // task 잠금 파일 · 오프셋 체크포인트 파일 위치 (store는 in-memory라 데이터는 여기 없다)
         p.put(StreamsConfig.STATE_DIR_CONFIG, env("STATE_DIR", "/tmp/kafka-streams"));
 
         // Kafka Streams가 만드는 내부 토픽(changelog)도 다른 토픽처럼 복제 3 · min ISR 2
         p.put(StreamsConfig.REPLICATION_FACTOR_CONFIG, 3);
         p.put(StreamsConfig.topicPrefix("min.insync.replicas"), "2");
-
-        // changelog 보존: 기본값은 store 보존 기간(1분) + 24시간이고, segment가 닫히기(기본 7일) 전에는 지우지 않는다
-        //   → pod가 바뀔 때 복원하며 하루치 이상을 읽게 된다. store에 필요한 것은 1분치뿐이라 둘 다 줄인다
-        //   (토픽을 처음 만들 때만 적용된다. 이미 있는 changelog는 kafka-configs로 바꾼다)
-        p.put(StreamsConfig.WINDOW_STORE_CHANGE_LOG_ADDITIONAL_RETENTION_MS_CONFIG, Duration.ofMinutes(1).toMillis());
-        p.put(StreamsConfig.topicPrefix("segment.ms"), String.valueOf(Duration.ofMinutes(10).toMillis()));
+        
+        // changelog 토픽안 레코드의 보존 기간 : store 보존 기간(TTL 1분) + 설정 값(현재는 1분)
+        p.put(StreamsConfig.WINDOW_STORE_CHANGE_LOG_ADDITIONAL_RETENTION_MS_CONFIG, 
+                Duration.ofMinutes(1).toMillis());
+        
+        // changelog 토픽의 segment 파일을 몇분마다 얼마마다 열지
+        // - default - 7일 / 16MiB
+        // - custom - 60분 / 한도 없음
+        // => failover 때 restore 양을 결정 => 복구 시간 결정
+        p.put(StreamsConfig.topicPrefix("segment.ms"),
+                String.valueOf(Duration.ofMinutes(60).toMillis()));
+        p.put(StreamsConfig.topicPrefix("retention.bytes"), 
+                "-1");
 
         // clean 토픽이 compression.type=zstd라 producer도 zstd로 보낸다 (다르면 broker가 다시 압축한다)
         p.put(StreamsConfig.producerPrefix(ProducerConfig.COMPRESSION_TYPE_CONFIG), "zstd");
+
         return p;
     }
 

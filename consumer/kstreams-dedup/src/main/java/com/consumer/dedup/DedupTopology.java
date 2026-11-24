@@ -30,24 +30,36 @@ final class DedupTopology {
     }
 
     static Topology build(List<DedupRoute> routes, Duration ttl) {
-        StreamsBuilder builder = new StreamsBuilder();
+        StreamsBuilder builder = new StreamsBuilder(); // 빈 설계도
+        
         for (DedupRoute route : routes) {
-            addRoute(builder, route, ttl);
+            addRoute(builder, route, ttl); // route 별 + sub-topology 추가
         }
+        
         return builder.build();
     }
 
+    // route 별 sub-topology 생성
+    //
+    // 현재 topology 구조 (repartition 없음. -> shuffle 없음/task 쪼갬 없음)
+    // task 0_0 : P0 -> dedup -> clean
+    // task 0_1 : P1 -> dedup -> clean
+    // task 0_2 : P2 -> dedup -> clean
+    // 
+    // => route 당 task 3개
     private static void addRoute(StreamsBuilder builder, DedupRoute route, Duration ttl) {
         String routeId = route.routeId();
 
         // 1. "봤다" 기록 store
-        //   - in-memory: state가 1분치 키뿐이라 RocksDB(디스크)까지 필요 없다. pod가 다시 뜨면 changelog 토픽에서 복원한다
-        //   - 보존 기간 = 윈도우 크기 = ttl. 보존 기간보다 오래된 항목은 store가 지운다
-        //   - retainDuplicates = false: 같은 키 · 같은 시각은 하나만 둔다
         StoreBuilder<WindowStore<String, Long>> store = Stores.windowStoreBuilder(
-                Stores.inMemoryWindowStore(route.storeName(), ttl, ttl, false),
+                Stores.inMemoryWindowStore(route.storeName(), // Store 이름
+                                            ttl,  // retention period
+                                            ttl,  // WindowSize
+                                            false), // 중복 허용 여부
                 Serdes.String(),   // 키: "BTCUSDT|5001"
-                Serdes.Long());    // 값: 레코드 timestamp
+                Serdes.Long()    // 값: 레코드 timestamp
+        );    
+
         builder.addStateStore(store);
 
         // 2. raw 토픽 (키 = 심볼, 값 = envelope JSON 문자열)
@@ -55,7 +67,7 @@ final class DedupTopology {
                 Consumed.with(Serdes.String(), Serdes.String()).withName("raw." + routeId));
 
         // 3. 중복 제거. store 이름을 넘겨야 processor가 getStateStore로 꺼낼 수 있다
-        //    () -> new ... : task마다 processor 인스턴스를 새로 만든다 (Python으로 치면 팩토리 함수)
+        //    () -> new ... : task마다 processor 인스턴스를 새로 만든다
         KStream<String, String> deduped = raw.process(
                 () -> new DedupProcessor(route, ttl),
                 Named.as("dedup." + routeId),
