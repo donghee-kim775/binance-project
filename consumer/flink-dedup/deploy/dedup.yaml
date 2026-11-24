@@ -25,10 +25,10 @@ spec:
     taskmanager.memory.managed.fraction: "0.1"  # state가 heap이라 managed memory는 거의 안 씀
 
     # 체크포인트 동작 (바꾸면 apply만, 이미지 재빌드 불필요)
-    execution.checkpointing.interval: 10s                       # 완료 시 Kafka offset 커밋
+    execution.checkpointing.interval: 1s                        # 완료 시 Kafka offset 커밋 (10s → 1s, 2026-11-23: lag 톱니를 Kafka Streams와 비교)
     execution.checkpointing.mode: EXACTLY_ONCE
     execution.checkpointing.timeout: 1min                       # 기본 10min
-    execution.checkpointing.min-pause: 5s
+    execution.checkpointing.min-pause: 500ms                    # interval보다 작게 (5s면 실제 간격이 5s 이상이 된다)
     execution.checkpointing.max-concurrent-checkpoints: "1"
     execution.checkpointing.tolerable-failed-checkpoints: "3"   # 연속 3번 실패까지 재시작 안 함
     execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION  # 취소해도 마지막 체크포인트 보관
