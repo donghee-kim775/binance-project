@@ -1,0 +1,48 @@
+# KEDA ScaledObject — kstreams-dedup pod 수를 consumer group lag로 조절한다
+# 아직 적용하지 않았다. 클러스터에 KEDA가 없다 (설치: helm repo add kedacore https://kedacore.github.io/charts
+#   && helm install keda kedacore/keda -n keda --create-namespace)
+#   kubectl apply -f deploy/auto-scaling/scaledobject.yaml      (consumer/kstreams-dedup/ 에서)
+#   kubectl get scaledobject,hpa -n binance-processing
+#
+# 적용 전에 확인할 것
+#   - dedup.yaml의 replicas: 2를 지운다. 남겨 두면 dedup.yaml을 apply할 때마다 2로 되돌아갔다가 HPA가 다시 맞춘다
+#   - 늘릴 수 있는 상한 = task 수 (경로 수 × 파티션 3). pod당 스레드가 1개(NUM_STREAM_THREADS)면 task보다 많은 pod는 놀기만 한다
+#   - pod가 늘거나 줄 때마다 리밸런스가 일어나고, 옮겨 간 task는 changelog에서 store를 복원한 뒤 처리한다
+#     → 자주 늘었다 줄었다 하지 않도록 아래 behavior로 속도를 늦춘다
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: kstreams-dedup
+  namespace: binance-processing
+spec:
+  scaleTargetRef:
+    name: kstreams-dedup          # Deployment (deploy/dedup.yaml)
+  minReplicaCount: 2              # 평소 2개. 하나가 죽어도 남은 pod가 task를 받는다 (0으로 줄이지 않는다)
+  maxReplicaCount: 3              # 지금 경로 1개 × 파티션 3 = task 3. 경로를 늘리면 같이 올린다
+  pollingInterval: 15             # 15초마다 lag 조회
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 60     # lag가 1분 이어질 때만 늘린다 (순간 튀는 lag 무시)
+          policies:
+            - type: Pods
+              value: 1                        # 한 번에 1개씩
+              periodSeconds: 60
+        scaleDown:
+          stabilizationWindowSeconds: 600    # 10분 동안 계속 한가해야 줄인다 (리밸런스 반복 방지)
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 300
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: binance-cluster-kafka-bootstrap.binancekafka.svc:9092   # plain 9092, 인증 없음
+        consumerGroup: kstreams-dedup     # = application.id (DedupApp)
+        # topic을 비워 두면 이 group이 커밋한 모든 토픽(= 모든 경로의 raw 토픽) lag를 합친다. 경로를 늘려도 고칠 필요가 없다
+        lagThreshold: "5000"              # pod 1개가 감당할 lag. 원하는 pod 수 = ceil(전체 lag / 5000)
+        activationLagThreshold: "0"
+        offsetResetPolicy: latest         # 커밋된 offset이 없는 파티션은 lag 0으로 본다 (처음 배포 때 24h치 lag로 잡지 않게)
+        allowIdleConsumers: "false"       # pod 수를 파티션 수보다 늘리지 않는다
+        excludePersistentLag: "false"

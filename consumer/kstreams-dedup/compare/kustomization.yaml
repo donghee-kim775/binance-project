@@ -1,0 +1,20 @@
+# Flink dedup과 나란히 띄워 비교하는 실행 (Flink는 binance.clean.*, 이 앱은 binance.clean.*.kstreams에 쓴다)
+#   kubectl apply -k consumer/kstreams-dedup/compare
+#   kubectl delete -k consumer/kstreams-dedup/compare     (끝나면. changelog 토픽은 따로 남는다)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../deploy
+  - clean-kstreams-topic.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: kstreams-dedup
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: CLEAN_TOPIC_SUFFIX
+          value: .kstreams
