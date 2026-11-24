@@ -151,7 +151,9 @@ metrics.reporter.prom.port: "9249"
 | 노드 Ready | MinIO · Kafka는 노드마다 하나씩 떠 있어 노드 하나가 빠지면 둘 다 영향 | 4/4 | ✅ |
 | Flink Operator reconcile 에러 · FlinkDeployment 상태 | job이 `RUNNING`이 아닌데 아무도 모르는 경우 | 에러 0, 상태 `RUNNING` | 🔧 (Operator PodMonitor) |
 
-✅ 항목은 Grafana 기본 대시보드에서 바로 본다:
+1 · 2 · 3-3 · 4 · 5절의 ✅ 항목(노드 자원, pod Ready · 재시작 · OOMKilled, pod별 CPU · 메모리, Kafka broker CPU · 네트워크)은 대시보드 `Binance / 노드 · pod 운영 상태`([dashboards/binance-cluster-health/](dashboards/binance-cluster-health/))에 모았다. PVC별 사용량은 local-path가 `kubelet_volume_stats_*`를 내지 않아 노드 디스크 사용률로 대신 본다.
+
+Grafana 기본 대시보드로도 볼 수 있다:
 - **Kubernetes / Compute Resources / Namespace (Pods):** namespace를 `binance-processing` · `binancekafka` · `binance-storage` · `binance-ingestion`으로 바꿔 가며 본다
 - **Node Exporter / Nodes:** 노드별 CPU · 메모리 · 디스크
 
