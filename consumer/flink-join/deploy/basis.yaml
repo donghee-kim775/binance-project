@@ -1,0 +1,77 @@
+# Flink basis job — clean Spot bookTicker + raw USD-M markPrice → analytics basis (consumer/flink-design.md 5장)
+# Flink Operator가 이 리소스를 보고 JobManager · TaskManager pod를 띄우고 job을 제출한다.
+#   docker build -t kimdonghee125/flink-join:0.0.1 .          (consumer/flink-join/ 에서)
+#   docker push kimdonghee125/flink-join:0.0.1
+#   kubectl apply -f Infra/Kafka/Kafka-Topic/binance/analytics/crypto   (저장소 루트에서, 출력 토픽)
+#   kubectl apply -f deploy/basis.yaml
+#
+# MinIO 계정 Secret(minio-auth)은 dedup job 배포 때 binance-processing에 만든 것을 같이 쓴다.
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-basis
+  namespace: binance-processing
+spec:
+  image: kimdonghee125/flink-join:0.0.1
+  imagePullPolicy: IfNotPresent   # Docker Hub(kimdonghee125)에서 받는다. 태그를 올려서 배포한다
+  flinkVersion: v2_2
+  serviceAccount: flink
+
+  # ConfigMap -> /opt/flink/conf/config.yaml -> env getExecutionEnvironment()
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "1"          # 가장 큰 병렬도(3)만큼 슬롯이 필요해 TaskManager 3개가 뜬다
+    taskmanager.memory.managed.fraction: "0.1"  # state가 heap이고 심볼마다 Spot 한 건뿐이다
+
+    # 체크포인트 동작 (dedup과 같다)
+    execution.checkpointing.interval: 10s                       # 완료 시 Kafka offset 커밋
+    execution.checkpointing.mode: EXACTLY_ONCE
+    execution.checkpointing.timeout: 1min
+    execution.checkpointing.min-pause: 5s
+    execution.checkpointing.max-concurrent-checkpoints: "1"
+    execution.checkpointing.tolerable-failed-checkpoints: "3"
+    execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+
+    # 체크포인트 저장소. 출력이 analytics 토픽이라 계층은 analytics
+    execution.checkpointing.dir: s3://binance/flink/analytics/flink-basis/checkpoints
+    execution.checkpointing.savepoint-dir: s3://binance/flink/analytics/flink-basis/savepoints
+    s3.endpoint: http://minio.binance-storage.svc:9000
+    s3.path.style.access: "true"
+
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://binance/flink/analytics/flink-basis/ha
+
+  jobManager:
+    replicas: 1
+    resource:
+      memory: "1024m"
+      cpu: 0.5
+  taskManager:
+    resource:
+      memory: "1536m"
+      cpu: 0.5
+
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: binance-cluster-kafka-bootstrap.binancekafka.svc:9092
+            - name: ENABLE_BUILT_IN_PLUGINS
+              value: flink-s3-fs-hadoop-2.2.1.jar
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-password
+
+  job:
+    jarURI: local:///opt/flink/usrlib/flink-join.jar   # 이미지 안의 경로 (Dockerfile)
+    entryClass: com.consumer.join.basis.BasisJob
+    parallelism: 1           # 기본값일 뿐. BasisJob이 연산자마다 setParallelism(source·parse 3, basis·sink 2)을 한다
+    upgradeMode: savepoint   # 재배포 때 savepoint로 latest-spot state · offset을 이어받음 (uid 고정)

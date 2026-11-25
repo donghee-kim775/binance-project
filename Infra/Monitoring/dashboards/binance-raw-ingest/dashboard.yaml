@@ -1,0 +1,745 @@
+# Grafana 대시보드: raw 토픽 유입 vs Flink 처리, consumer lag (metrics.md 0절 "들어오나?" "밀리지 않나?")
+# - 라벨 grafana_dashboard: "1" 이면 Grafana sidecar가 자동으로 불러온다 (Infra/Monitoring/README.md)
+# - 지표 출처: Kafka Exporter (Infra/Kafka/Kafka-Cluster/kafka-cluster.yaml 의 kafkaExporter)
+#   - 유입 = 토픽 끝 offset 증가율 (kafka_topic_partition_current_offset)
+#   - 처리 = Flink가 커밋한 offset 증가율 (kafka_consumergroup_current_offset). Flink reporter 없이 구하는 처리 속도
+# - Backpressure 패널만 Flink reporter 지표다. reporter를 붙이기 전에는 `-`로 보인다 (metrics.md 3절)
+# - 패널별 계산 방법: 같은 폴더의 README.md
+# - lag가 -1이면 한 번도 커밋하지 않은 빈 파티션이다. clamp_min(…, 0)으로 0으로 본다
+# - Flink는 체크포인트(10s)가 끝날 때 offset을 커밋해서 lag가 10초 톱니로 보인다. 톱니 바닥이 계속 오르면 밀리는 것
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-binance-raw-ingest
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  binance-raw-ingest.json: |
+    {
+      "uid": "binance-raw-ingest",
+      "title": "Binance / raw 유입 vs Flink 처리",
+      "tags": [
+        "binance"
+      ],
+      "timezone": "browser",
+      "refresh": "10s",
+      "time": {
+        "from": "now-15m",
+        "to": "now"
+      },
+      "schemaVersion": 39,
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "데이터 소스",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {}
+          },
+          {
+            "name": "group",
+            "label": "consumer group",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "query": {
+              "query": "label_values(kafka_consumergroup_lag{topic=~\"binance.raw.*\"}, consumergroup)",
+              "refId": "group"
+            },
+            "definition": "label_values(kafka_consumergroup_lag{topic=~\"binance.raw.*\"}, consumergroup)",
+            "current": {
+              "text": "flink-dedup",
+              "value": "flink-dedup"
+            },
+            "refresh": 2
+          },
+          {
+            "name": "topic",
+            "label": "raw 토픽",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "query": {
+              "query": "label_values(kafka_topic_partition_current_offset{topic=~\"binance.raw.*\"}, topic)",
+              "refId": "topic"
+            },
+            "definition": "label_values(kafka_topic_partition_current_offset{topic=~\"binance.raw.*\"}, topic)",
+            "multi": true,
+            "includeAll": true,
+            "allValue": "binance.raw.*",
+            "current": {
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            },
+            "refresh": 2
+          },
+          {
+            "name": "flinkjob",
+            "label": "Flink job",
+            "type": "custom",
+            "query": "dedup",
+            "current": {
+              "text": "dedup",
+              "value": "dedup"
+            }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 100,
+          "type": "row",
+          "title": "현상황",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Kafka 유입",
+          "description": "토픽에 초당 새로 들어오는 레코드 수. 모든 파티션의 끝 offset 증가율(1분)을 합한 값. 0이면 수집이 끊긴 것",
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=~\"$topic\"}[1m]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              },
+              "noValue": "-"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 30
+            }
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Flink 처리 ($group)",
+          "description": "Flink가 초당 처리를 끝내고 커밋한 레코드 수. 커밋된 offset 증가율(1분)을 합한 값. 커밋은 체크포인트(10s)마다라 유입보다 거칠게 움직인다",
+          "gridPos": {
+            "x": 4,
+            "y": 1,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_consumergroup_current_offset{consumergroup=\"$group\", topic=~\"$topic\"}[1m]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              },
+              "noValue": "-"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 30
+            }
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Consumer Lag",
+          "description": "아직 커밋되지 않은 레코드 수 (쌓인 양). 체크포인트마다 0 근처로 떨어지는 톱니라 최근 값 하나는 0 ~ 유입 × 12초 사이를 오간다",
+          "gridPos": {
+            "x": 8,
+            "y": 1,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$group\", topic=~\"$topic\"}, 0))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 10000
+                  },
+                  {
+                    "color": "red",
+                    "value": 50000
+                  }
+                ]
+              },
+              "noValue": "-"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 30
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Lag 시간",
+          "description": "쌓인 lag를 지금 유입 속도로 나눈 값 = 몇 초치가 밀려 있나. 커밋 간격 때문에 정상이어도 0 ~ 12초를 오간다. 유입이 0이면 계산하지 않는다",
+          "gridPos": {
+            "x": 12,
+            "y": 1,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$group\", topic=~\"$topic\"}, 0)) / (sum(rate(kafka_topic_partition_current_offset{topic=~\"$topic\"}[5m])) > 0)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 30
+                  },
+                  {
+                    "color": "red",
+                    "value": 120
+                  }
+                ]
+              },
+              "noValue": "-"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 30
+            }
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Lag 증가 속도",
+          "description": "유입 속도 − 처리 속도 (10분 평균). = 10분 동안 lag가 늘어난 양 ÷ 600초. 0 근처면 따라가는 중, 계속 양수면 밀리는 중, 음수면 따라잡는 중. 톱니 때문에 ±(유입 × 12 ÷ 600) 정도는 흔들린다",
+          "gridPos": {
+            "x": 16,
+            "y": 1,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=~\"$topic\"}[10m])) - sum(rate(kafka_consumergroup_current_offset{consumergroup=\"$group\", topic=~\"$topic\"}[10m]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 20
+                  },
+                  {
+                    "color": "red",
+                    "value": 100
+                  }
+                ]
+              },
+              "noValue": "-"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 30
+            }
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Flink Backpressure",
+          "description": "subtask가 1초 중 다음 연산자를 기다리며 막혀 있던 시간 (0~1000ms). 가장 막힌 subtask 기준. Flink reporter 지표라 붙이기 전에는 값이 없다 (metrics.md 3절)",
+          "gridPos": {
+            "x": 20,
+            "y": 1,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "max(flink_taskmanager_job_task_backPressuredTimeMsPerSecond{job_name=\"$flinkjob\"})"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "decimals": 0,
+              "min": 0,
+              "max": 1000,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 100
+                  },
+                  {
+                    "color": "red",
+                    "value": 500
+                  }
+                ]
+              },
+              "noValue": "-"
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 30
+            }
+          }
+        },
+        {
+          "id": 101,
+          "type": "row",
+          "title": "유입 vs 처리 속도 (records/sec)",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 6,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "유입 vs 처리 (전체)",
+          "description": "두 선이 겹치면 정상. 처리가 유입 아래로 계속 떨어져 있으면 그 차이만큼 lag가 쌓인다",
+          "gridPos": {
+            "x": 0,
+            "y": 7,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=~\"$topic\"}[1m]))",
+              "legendFormat": "Kafka 유입"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(rate(kafka_consumergroup_current_offset{consumergroup=\"$group\", topic=~\"$topic\"}[1m]))",
+              "legendFormat": "Flink 처리"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "custom": {
+                "fillOpacity": 10,
+                "lineWidth": 2
+              },
+              "noValue": "-"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 처리"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        6
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "파티션별 유입 vs 처리",
+          "description": "Kafka 키가 심볼이라 같은 심볼은 한 파티션에만 들어간다. 한 파티션만 유입이 높거나, 한 파티션만 처리가 뒤처지면 여기서 보인다. 처리는 커밋된 offset 기준이라 Flink reporter 없이도 파티션별로 볼 수 있다",
+          "gridPos": {
+            "x": 12,
+            "y": 7,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (topic, partition) (rate(kafka_topic_partition_current_offset{topic=~\"$topic\"}[1m])) > 0",
+              "legendFormat": "{{topic}} p{{partition}} 유입"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (topic, partition) (rate(kafka_consumergroup_current_offset{consumergroup=\"$group\", topic=~\"$topic\"}[1m])) > 0",
+              "legendFormat": "{{topic}} p{{partition}} 처리"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "custom": {
+                "fillOpacity": 0,
+                "lineWidth": 1
+              },
+              "noValue": "-"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* 처리$"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          }
+        },
+        {
+          "id": 102,
+          "type": "row",
+          "title": "Consumer lag (records)",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Consumer lag (전체, $group)",
+          "description": "10초 톱니가 정상. 톱니의 바닥이 점점 올라가면 Flink가 따라가지 못하는 것",
+          "gridPos": {
+            "x": 0,
+            "y": 17,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$group\", topic=~\"$topic\"}, 0))",
+              "legendFormat": "lag"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 10,
+                "lineWidth": 2
+              },
+              "noValue": "-"
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "파티션별 consumer lag ($group)",
+          "description": "합계는 괜찮아 보여도 한 파티션에만 lag가 몰릴 수 있다. 커밋한 적 없는 빈 파티션(-1)은 뺀다",
+          "gridPos": {
+            "x": 12,
+            "y": 17,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (topic, partition) (kafka_consumergroup_lag{consumergroup=\"$group\", topic=~\"$topic\"} >= 0)",
+              "legendFormat": "{{topic}} p{{partition}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 0,
+                "lineWidth": 1
+              },
+              "noValue": "-"
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          }
+        }
+      ]
+    }

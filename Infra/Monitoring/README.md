@@ -36,11 +36,18 @@ kubectl get prometheus -n monitoring monitoring-kube-prometheus-prometheus \
 
 - Service가 있는 앱(수집 앱, MinIO) → ServiceMonitor
 - pod를 Operator가 만드는 앱(Flink TaskManager, Strimzi Kafka) → PodMonitor
-- 매니페스트는 각 앱 옆에 둔다 (예: `consumer/flink-app/deploy/`). 이 폴더에는 모니터링 스택 자체의 것만 둔다.
+- 매니페스트는 각 앱 옆에 둔다 (예: `consumer/flink-dedup/deploy/`). 이 폴더에는 모니터링 스택 자체의 것만 둔다.
 
 ## 대시보드 관리
 
-Grafana pod에 sidecar(`grafana-sc-dashboard`)가 있어, **라벨 `grafana_dashboard: "1"`이 붙은 ConfigMap**의 JSON을 대시보드로 자동으로 불러온다. UI에서 만든 대시보드는 Export → JSON으로 받아 ConfigMap으로 저장한다.
+Grafana pod에는 sidecar(`grafana-sc-dashboard`)가 있다. sidecar는 모든 namespace를 살펴서 **라벨 `grafana_dashboard: "1"`이 붙은 ConfigMap**의 JSON을 대시보드로 자동으로 불러온다. UI에서 만든 대시보드는 Export → JSON으로 받아 ConfigMap으로 저장한다.
+
+대시보드마다 [dashboards/](dashboards/) 아래에 폴더를 하나씩 둔다. 폴더에는 `dashboard.yaml`(ConfigMap)과 `README.md`(패널별 계산 방법)가 들어간다. 올릴 때는 `kubectl apply -R -f Infra/Monitoring/dashboards/`를 쓴다.
+
+| 폴더 | 대시보드 | 지표 출처 |
+| --- | --- | --- |
+| [binance-raw-ingest/](dashboards/binance-raw-ingest/) | `Binance / raw 유입 vs Flink 처리`: 유입 · 처리 속도, consumer lag (records · 초), lag 증가 속도, backpressure. 전체와 파티션별 | Kafka Exporter |
+| [binance-cluster-health/](dashboards/binance-cluster-health/) | `Binance / 노드 · pod 운영 상태`: 노드 CPU · 메모리 · 디스크 · 네트워크, 수집기 · 처리기 · Kafka · 저장소 pod 상태 표(Ready · 재시작 · OOMKilled 등)와 pod별 CPU · 메모리 | node-exporter, cAdvisor, kube-state-metrics (기본 수집) |
 
 ## 지금 단순화한 것
 

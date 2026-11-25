@@ -1,0 +1,18 @@
+# Spot-Futures basis — Flink basis job(consumer/flink-join)이 쓴다 (docs/kafka/topics.md)
+# 입력: binance.clean.spot.crypto.bookticker + binance.raw.usdm.crypto.markprice. markPrice 1건당 1건 (심볼마다 초당 1건)
+# Spot과 USD-M을 함께 쓰는 결과라 이름에 product가 없다
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: binance.analytics.crypto.basis
+  namespace: binancekafka
+  labels:
+    strimzi.io/cluster: binance-cluster
+spec:
+  partitions: 3     # 키 = 심볼. 입력 토픽과 같은 수
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    retention.ms: 604800000      # 7d (z-score 롤링 통계와 대시보드가 다시 읽을 수 있게)
+    cleanup.policy: delete
+    compression.type: zstd

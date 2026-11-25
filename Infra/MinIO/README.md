@@ -1,6 +1,6 @@
 # MinIO
 
-Flink 체크포인트 · savepoint를 저장하는 S3 호환 저장소다. dedup job이 여기에 체크포인트 · savepoint를 남기고 `upgradeMode: savepoint`로 재배포 · 장애 때 state(본 키 목록)와 Kafka offset을 이어받는다 ([consumer/flink-app/deploy/dedup.yaml](../../consumer/flink-app/deploy/dedup.yaml)).
+Flink 체크포인트 · savepoint를 저장하는 S3 호환 저장소다. dedup job이 여기에 체크포인트 · savepoint를 남기고 `upgradeMode: savepoint`로 재배포 · 장애 때 state(본 키 목록)와 Kafka offset을 이어받는다 ([consumer/flink-dedup/deploy/dedup.yaml](../../consumer/flink-dedup/deploy/dedup.yaml)).
 
 | 항목 | 값 |
 | --- | --- |
@@ -34,7 +34,7 @@ PC에서 `mc`로 붙을 때는 S3 API 포트를 쓴다: `mc alias set binance ht
 
 경로는 `s3://binance/flink/<계층>/<job 이름>/<checkpoints|savepoints|ha>`다. 계층은 job이 쓰는 토픽의 단계(raw/clean/analytics), job 이름은 FlinkDeployment 이름이다. 규칙과 이유는 [plan/storage/plan.md](../../plan/storage/plan.md).
 
-`consumer/flink-app/deploy/dedup.yaml`에 넣을 것:
+`consumer/flink-dedup/deploy/dedup.yaml`에 넣을 것:
 
 ```yaml
 spec:

@@ -92,8 +92,9 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 ├── plan/                  설계 결정 기록
 │   ├── ingestion/         Ingestion Pod 구성, HA, 중복 제거
 │   ├── topic/             Kafka 토픽 설계, Insight 1 토픽 흐름
-│   └── storage/           MinIO 체크포인트 경로 규칙
-├── consumer/              Flink 앱 (flink-app: dedup job, flink-test: 로컬 테스트), 설계 flink-design.md
+│   ├── storage/           MinIO 체크포인트 경로 규칙
+│   └── performance/       단계별 지연 측정과 튜닝 (이슈 기록 단계)
+├── consumer/              처리 앱 (flink-dedup: Flink dedup, kstreams-dedup: Kafka Streams dedup, flink-join: basis join, flink-test: 로컬 테스트), 설계 flink-design.md
 ├── datasource-ingestion/  Ingestion 앱
 │   ├── collector/         수집 앱 (Spring Boot). raw만 envelope로 감싸 발행
 │   ├── deploy/            Dockerfile, variable-rate / fixed-rate K8s 매니페스트, 설정→코드 매핑
@@ -166,12 +167,17 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 
 #### A-5. 운영 고도화
 
-- [ ] Prometheus/Grafana 운영 metric 대시보드 (볼 지표 정리: [metrics.md](Infra/Monitoring/metrics.md), 앱 메트릭 연결은 아직)
 - [ ] 실제 유입량 측정 후 보존 기간·디스크 재계산
 - [ ] 단계별 지연 측정 (`receive_time` → raw → clean → analytics)
 - [ ] 부하 테스트 (depth@100ms on/off 비교, 배치 삽입 전략 비교)
 - [ ] 장애 주입 테스트 (Active-Active 페일오버, dedup 저장소 장애 시 동작 검증)
 - [ ] API 키 권한 분리 점검 (Ingestion은 조회 전용, 주문 기능은 별도 키/프로세스)
+
+#### A-6. 모니터링
+
+볼 지표와 붙이는 순서: [metrics.md](Infra/Monitoring/metrics.md) · Prometheus/Grafana 사용법: [Monitoring](Infra/Monitoring/README.md)
+
+- [x] raw 유입 vs Flink 처리 대시보드 ([binance-raw-ingest](Infra/Monitoring/dashboards/binance-raw-ingest/README.md)): Kafka 유입 · Flink 처리 속도, consumer lag (건수 · 초), lag 증가 속도. 전체와 파티션별. Kafka Exporter 기반 (2026-11-18)
 
 ### B. 인사이트별 구현
 

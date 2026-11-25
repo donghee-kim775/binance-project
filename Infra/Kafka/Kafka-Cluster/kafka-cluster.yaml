@@ -72,3 +72,9 @@ spec:
   entityOperator:
     topicOperator: {}
     userOperator: {}
+
+  # 토픽 offset · consumer group lag를 Prometheus 지표로 내보내는 별도 pod (broker는 재시작하지 않는다)
+  # 수집: kafka-exporter-podmonitor.yaml / 대시보드: Infra/Monitoring/dashboards/
+  kafkaExporter:
+    topicRegex: "binance\\..*"   # 우리 토픽만 (__consumer_offsets 등 내부 토픽 제외)
+    groupRegex: ".*"             # Flink job(flink-dedup 등) consumer group 전부

@@ -2,7 +2,7 @@
 
 Kafka raw 토픽을 읽어 dedup과 분석을 하는 Flink 앱의 설계안이다. 수집 앱은 raw를 Kafka로 보내기만 하고, dedup·조인·분석은 전부 여기서 한다.
 
-> 상태: **dedup job 구현, basis job 예정.** dedup은 [flink-app/](flink-app/)에 있고 Flink Operator(`FlinkDeployment`)로 띄운다 (2026-11-18 클러스터 배포 확인: `spot.crypto.bookticker` 경로, raw : clean ≈ 2 : 1). [flink-test/](flink-test/)는 경로 하나짜리 테스트 버전이다. 확정되면 `plan/consumer/plan.md`에 결정 기록으로 옮긴다.
+> 상태: **dedup job 구현, basis job 예정.** dedup은 [flink-dedup/](flink-dedup/)에 있고 Flink Operator(`FlinkDeployment`)로 띄운다 (2026-11-18 클러스터 배포 확인: `spot.crypto.bookticker` 경로, raw : clean ≈ 2 : 1). [flink-test/](flink-test/)는 경로 하나짜리 테스트 버전이다. 확정되면 `plan/consumer/plan.md`에 결정 기록으로 옮긴다.
 
 ## 전체 흐름
 
@@ -157,7 +157,7 @@ env.execute("dedup");
 **B.**
 
 ```text
-consumer/flink-app/                   # Flink 앱 하나 (jar 하나)
+consumer/flink-dedup/                   # Flink 앱 하나 (jar 하나)
 ├── build.gradle
 ├── Dockerfile
 ├── src/main/java/com/consumer/

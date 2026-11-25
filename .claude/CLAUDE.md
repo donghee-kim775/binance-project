@@ -7,7 +7,7 @@ Binance WebSocket 시장 데이터를 Kafka로 수집하고 Flink로 분석하�
 - `datasource-ingestion/collector/`: 수집 앱 (Spring Boot 4, Java 17). **raw 이벤트를 Kafka로 보내기만 한다.** dedup, 조인, 분석은 하지 않는다.
 - `datasource-ingestion/deploy/`: 수집 앱 Dockerfile과 K8s 매니페스트 (kustomize). 설정→코드 매핑은 `deploy/mapping.md`
 - 분석(dedup, basis join 등)은 **별도 Flink 앱**에서 한다. 수집 앱에 넣지 않는다.
-- `plan/`: 설계 결정 기록 (`ingestion/`, `topic/`, `consumer/`, `storage/`)
+- `plan/`: 설계 결정 기록 (`ingestion/`, `topic/`, `consumer/`, `storage/`, `performance/`)
 - `Infra/`: Strimzi Kafka, Flink Operator, MinIO, ClickHouse, Monitoring(Prometheus · Grafana)
 - `docs/`: Binance API 조사 (`binance-api/`, `streams/`), 수집 심볼 표와 섹터 분류 (`symbols/0TickerInfoTable.md`, `symbols/cryptoSectorREADME.md`), Kafka 토픽 목록과 설정 이유 (`kafka/`), 초기 메모 (`notes/`), Spring Boot 동작 정리 (`spring/`)
 - `Insights/`: 인사이트 카탈로그와 인사이트별 계획

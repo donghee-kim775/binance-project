@@ -1,7 +1,7 @@
 # Flink dedup job 런타임 흐름: 레코드가 5단계를 지나는 방법
 
 [flinkDedupCodeReadingREADME.md](flinkDedupCodeReadingREADME.md)가 **코드를 읽는 순서**라면, 이 노트는 **job이 떠 있는 동안 레코드 하나가 실제로 어느 스레드 · 어느 메모리 · 어느 네트워크를 지나는지**를 따라간다.
-[DedupJob.addRoute](../../consumer/flink-app/src/main/java/com/consumer/dedup/DedupJob.java)의 5단계를 기준으로 정리했다.
+[DedupJob.addRoute](../../consumer/flink-dedup/src/main/java/com/consumer/dedup/DedupJob.java)의 5단계를 기준으로 정리했다.
 
 ```text
 1. raw     KafkaSource          (raw 토픽 → String)
@@ -56,7 +56,7 @@
 
 ## 1. raw: `KafkaSource`가 레코드를 꺼낸다
 
-[KafkaIO.source](../../consumer/flink-app/src/main/java/com/consumer/common/KafkaIO.java)
+[KafkaIO.source](../../consumer/flink-dedup/src/main/java/com/consumer/common/KafkaIO.java)
 
 ```text
 [job 시작 시, JobManager]
@@ -85,7 +85,7 @@ output.collect(json)  →  바로 2단계 processElement 호출
 
 ## 2. parse: `DedupKeyParser`가 키 재료를 꺼낸다
 
-[DedupKeyParser.java](../../consumer/flink-app/src/main/java/com/consumer/dedup/DedupKeyParser.java)
+[DedupKeyParser.java](../../consumer/flink-dedup/src/main/java/com/consumer/dedup/DedupKeyParser.java)
 
 ```text
 Task A main 스레드 (1단계에서 이어지는 같은 호출 스택)
@@ -105,7 +105,7 @@ out.collect(Tuple3("BTCUSDT", "102670132459", json))  →  3단계 연결선으�
 
 ## 3. keyBy: 연산자가 아니라 "어디로 보낼지" 정하는 연결선
 
-[DedupJob.addRoute](../../consumer/flink-app/src/main/java/com/consumer/dedup/DedupJob.java) `keyBy(t -> t.f0 + "|" + t.f1)`
+[DedupJob.addRoute](../../consumer/flink-dedup/src/main/java/com/consumer/dedup/DedupJob.java) `keyBy(t -> t.f0 + "|" + t.f1)`
 
 ```text
 [보내는 쪽: Task A]
@@ -139,7 +139,7 @@ main 스레드 ── 입력 버퍼에서 바이트 → Tuple3 역직렬화
 
 ## 4. dedup: `DedupFunction`이 처음 본 키만 통과시킨다
 
-[DedupFunction.java](../../consumer/flink-app/src/main/java/com/consumer/dedup/DedupFunction.java)
+[DedupFunction.java](../../consumer/flink-dedup/src/main/java/com/consumer/dedup/DedupFunction.java)
 
 ```text
 Task B main 스레드 (현재 키 = "BTCUSDT|102670132459")
@@ -238,7 +238,7 @@ public S get(N namespace) {
 
 ## 5. clean: `KafkaSink`가 clean 토픽에 쓴다
 
-[KafkaIO.sink](../../consumer/flink-app/src/main/java/com/consumer/common/KafkaIO.java)
+[KafkaIO.sink](../../consumer/flink-dedup/src/main/java/com/consumer/common/KafkaIO.java)
 
 ```text
 Task B main 스레드 (4단계 collect()에서 이어지는 같은 호출 스택)
