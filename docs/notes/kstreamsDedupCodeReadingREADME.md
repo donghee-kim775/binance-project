@@ -27,18 +27,18 @@ pod 하나 = JVM 프로세스 하나 ── DedupApp.main(args)
 | --- | --- | --- |
 | 1 | [deploy/dedup.yaml](../../consumer/kstreams-dedup/deploy/dedup.yaml), [Dockerfile](../../consumer/kstreams-dedup/Dockerfile), [build.gradle](../../consumer/kstreams-dedup/build.gradle) | yaml 값이 어디로 들어가나 |
 | 2 | [DedupApp.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/DedupApp.java) `main` | 앱 조립, 종료 · 실패 처리 |
-| 3 | [DedupRoute.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/DedupRoute.java) | 인자 문자열 → raw · clean 토픽, store 이름 |
-| 4 | [DedupTopology.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/DedupTopology.java) | 경로 하나의 파이프라인 + store |
-| 5 | [DedupProcessor.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/DedupProcessor.java) | 레코드 하나의 처리 |
-| 6 | 다시 [DedupApp.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/DedupApp.java) `config` | exactly-once 커밋 |
+| 3 | [DedupRoute.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/dedup/DedupRoute.java) | 인자 문자열 → raw · clean 토픽, store 이름 |
+| 4 | [DedupTopology.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/dedup/DedupTopology.java) | 경로 하나의 파이프라인 + store |
+| 5 | [DedupProcessor.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/dedup/DedupProcessor.java) | 레코드 하나의 처리 |
+| 6 | 다시 [KafkaConfig.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/config/KafkaConfig.java) `create` | exactly-once 커밋 |
 | 7 | — | pod 2개의 task 분배, 장애 · 재배포 |
-| 8 | [DedupTopologyTest.java](../../consumer/kstreams-dedup/src/test/java/com/consumer/dedup/DedupTopologyTest.java) | broker 없이 돌려 보기 |
+| 8 | [DedupTopologyTest.java](../../consumer/kstreams-dedup/src/test/java/com/consumer/dedup/dedup/DedupTopologyTest.java) | broker 없이 돌려 보기 |
 
 ---
 
 ## 1. yaml · Dockerfile: 값이 어디로 가나
 
-Flink 버전에서는 Operator가 yaml을 읽고, 값마다 다른 곳(Flink 설정, main 인자, S3 플러그인)에 나눠 줬다. 여기는 **평범한 Deployment라 컨테이너에 들어가는 것은 args와 env 둘뿐이다.** 나머지 설정은 모두 코드(`DedupApp.config`)에 있다.
+Flink 버전에서는 Operator가 yaml을 읽고, 값마다 다른 곳(Flink 설정, main 인자, S3 플러그인)에 나눠 줬다. 여기는 **평범한 Deployment라 컨테이너에 들어가는 것은 args와 env 둘뿐이다.** 나머지 설정은 모두 코드(`config/KafkaConfig.create`)에 있다.
 
 | yaml · 빌드 | 누가 받나 | 코드에서 |
 | --- | --- | --- |
@@ -46,8 +46,9 @@ Flink 버전에서는 Operator가 yaml을 읽고, 값마다 다른 곳(Flink 설
 | (Dockerfile) `ENTRYPOINT bin/kstreams-dedup` | gradle `application` 플러그인이 만든 실행 스크립트. `lib/*.jar`를 classpath에 넣고 `mainClass`를 실행 | `DedupApp.main` |
 | (build.gradle) `applicationDefaultJvmArgs` | 실행 스크립트가 JVM 옵션으로 넘김 (`-XX:MaxRAMPercentage=60`) | — |
 | `args` | **ENTRYPOINT 뒤에 붙어 `main(String[] args)`로 그대로** | `DedupRoute.parse` |
-| env `KAFKA_BOOTSTRAP_SERVERS` | 환경 변수 | `config()`의 `bootstrap.servers` |
-| env `NUM_STREAM_THREADS` | 환경 변수 | `config()`의 `num.stream.threads` |
+| env `KAFKA_APPLICATION_ID` | 환경 변수 | `KafkaConfig.create()`의 `application.id` (= consumer group · changelog 앞부분) |
+| env `KAFKA_BOOTSTRAP_SERVERS` | 환경 변수 | `KafkaConfig.create()`의 `bootstrap.servers` |
+| env `NUM_STREAM_THREADS` | 환경 변수 | `KafkaConfig.create()`의 `num.stream.threads` |
 | `replicas: 2` | Kubernetes | 코드는 모른다. 같은 `application.id`로 뜬 프로세스끼리 consumer group으로 묶여 task를 나눈다 |
 | `terminationGracePeriodSeconds: 30` | SIGTERM 뒤 SIGKILL까지의 시간 | shutdown hook의 `close(20s)`가 이 안에 끝나야 한다 |
 | `limits.memory: 512Mi` | 컨테이너 | heap = 512Mi × 60% ≈ 300Mi. store가 heap 안에 있다 |
@@ -62,10 +63,10 @@ Flink 버전에서는 Operator가 yaml을 읽고, 값마다 다른 곳(Flink 설
 ```java
 List<DedupRoute> routes = args.map(DedupRoute::parse);            // (실제 코드는 for문)
 Topology topology = DedupTopology.build(routes, TTL);             // 설계도
-KafkaStreams streams = new KafkaStreams(topology, config());      // 아직 아무것도 안 읽음
+KafkaStreams streams = new KafkaStreams(topology, KafkaConfig.create());      // 아직 아무것도 안 읽음
 streams.setUncaughtExceptionHandler(...);  streams.setStateListener(...);  addShutdownHook(...);
 streams.start();                                                   // StreamThread가 뜬다
-done.await();                                                      // main 스레드는 여기서 멈춰 있다
+latch.await();                                                     // main 스레드는 여기서 멈춰 있다
 ```
 
 - **`main`은 레코드를 처리하지 않는다.** Flink의 `env.execute()`와 비슷하게 `streams.start()`가 처리를 시작한다. 다른 점은 처리가 **같은 프로세스 안의 StreamThread**에서 돈다는 것이다. Flink는 `main`이 JobManager에서 job graph를 만들고, 처리는 다른 pod(TaskManager)에서 했다.
@@ -77,13 +78,15 @@ done.await();                                                      // main 스�
 ```text
 정상 종료 (kubectl rollout, pod 삭제)
   SIGTERM → [스레드] dedup-shutdown (shutdown hook)
-  → streams.close(20s): 진행 중 트랜잭션 커밋, consumer group에서 나감 (남은 pod가 리밸런스로 task를 받음)
-  → done.countDown() → main 끝 → 프로세스 종료
+  → streams.close(20s): 진행 중 트랜잭션 마무리. consumer group에서는 나가지 않는다 (REMAIN_IN_GROUP)
+    → 남은 pod는 session.timeout.ms(기본 45s) 뒤에 리밸런스로 task를 받는다
+  → latch.countDown() → main이 깨어나 상태 확인 (NOT_RUNNING) → main 끝 → 프로세스 종료
 
 실패 (처리 중 잡히지 않은 예외)
   [스레드] StreamThread → UncaughtExceptionHandler → SHUTDOWN_CLIENT (이 인스턴스의 모든 스레드를 내림)
-  → 상태 ERROR → StateListener가 failed=true, done.countDown()
-  → main이 close 후 System.exit(1) → 컨테이너 종료 → Kubernetes가 pod 재시작
+  → 상태 ERROR → StateListener가 latch.countDown()
+  → main이 깨어나 streams.state() == ERROR 확인 → System.exit(1)
+  → shutdown hook이 close → 컨테이너 종료 → Kubernetes가 pod 재시작
 ```
 
 - `REPLACE_THREAD`(스레드만 새로 띄우기)를 쓰지 않은 이유는 이렇다. 같은 레코드에서 계속 실패하는데도 pod는 Running으로 보여 장애를 알아채기 어렵다. 프로세스를 끝내면 restart 횟수로 드러난다. liveness probe가 없는 것을 이것으로 대신한다.
@@ -178,11 +181,11 @@ timestamp = 1794471848263   (collector producer가 보낸 시각, CreateTime)
 ① 키 만들기    envelope.symbol + "|" + envelope.payload.u → "BTCUSDT|102670132459"
                JSON이 깨졌거나 둘 중 하나가 없으면 warn 로그만 남기고 return (버림)
 
-② 봤나?        seen.fetch(키, ts − 1분, ts + 1분)
+② 봤나?        seenStore.fetch(키, ts − 1분, ts + 1분)
    n2dmt 것    → 비어 있음 → ③으로
    s5wzv 것    → n2dmt가 넣은 항목이 있음 → return (버림)
 
-③ 기록 · 출력  seen.put(키, ts, ts)                    → store에 쓰고, changelog에도 한 건
+③ 기록 · 출력  seenStore.put(키, ts, ts)                 → store에 쓰고, changelog에도 한 건
                envelope.put("dedup_time", 지금 시각)
                context.forward(record.withValue(...))  → sink → clean 토픽 (트랜잭션 안)
 ```
@@ -245,7 +248,7 @@ pod B  StreamThread-1 ── task 0_1        (store 1개)
 | 스레드 수 · pod 수 > task 수 | task를 못 받은 스레드는 논다 |
 
 - **Flink와 비교:** Flink는 TaskManager 하나가 죽으면 job 전체가 체크포인트로 돌아갔다. Kafka Streams는 죽은 pod의 task만 옮겨 가고, 나머지 task는 계속 처리한다.
-- **복원 시간은 changelog 크기에 달렸다.** store에는 1분치만 있다. 그런데 changelog 토픽은 기본값으로 store 보존 기간보다 24시간 더 보관한다(`windowstore.changelog.additional.retention.ms`). 또 segment가 닫히기(기본 7일) 전에는 지우지 않는다. 그래서 `config()`에서 추가 보존을 1분, `segment.ms`를 10분으로 줄였다. 이제 복원할 때 읽는 양은 최대 십여 분치다. 이 설정은 토픽을 처음 만들 때만 적용된다.
+- **복원 시간은 changelog 크기에 달렸다.** store에는 1분치만 있다. 그런데 changelog 토픽은 기본값으로 store 보존 기간보다 24시간 더 보관한다(`windowstore.changelog.additional.retention.ms`). 또 segment가 닫히기(기본 7일) 전에는 지우지 않는다. 그래서 `KafkaConfig.create()`에서 추가 보존을 1분, `segment.ms`를 10분으로 줄였다. 이제 복원할 때 읽는 양은 최대 십여 분치다. 이 설정은 토픽을 처음 만들 때만 적용된다.
 - standby replica는 0이다. task를 옮길 때 미리 복원해 둔 복사본이 없다.
 
 ---
@@ -253,7 +256,7 @@ pod B  StreamThread-1 ── task 0_1        (store 1개)
 ## 8. 테스트: broker 없이 돌려 보기
 
 ```java
-driver = new TopologyTestDriver(DedupTopology.build(List.of(route), TTL), DedupApp.config());
+driver = new TopologyTestDriver(DedupTopology.build(List.of(route), TTL), KafkaConfig.create());
 raw.pipeInput("BTCUSDT", envelope("pod-a", "BTCUSDT", 1), T0);
 raw.pipeInput("BTCUSDT", envelope("pod-b", "BTCUSDT", 1), T0.plusMillis(30));
 clean.readKeyValuesToList();   // 1건

@@ -40,19 +40,19 @@ class DedupKeyParser extends ProcessFunction<String, Tuple3<String, String, Stri
             // parsing
             JsonNode envelope = mapper.readTree(envelopeJson);
             JsonNode symbol = envelope.path("symbol"); // ex) "symbol" : "BTCUSDT" 
-            JsonNode id = envelope.path("payload").path(eventIdField); // "payload" : {"u" : 5001}
+            JsonNode eventId = envelope.path("payload").path(eventIdField); // "payload" : {"u" : 5001}
             
             // validate 1 : symbol이 없거나, 문자열이 아님
             // validate 2 : payload나 eventId 필드가 없음
             // validate 3 : 필드는 있는데 값이 null
-            if (!symbol.isTextual() || id.isMissingNode() || id.isNull()) {
+            if (!symbol.isTextual() || eventId.isMissingNode() || eventId.isNull()) {
                 log.warn("[dedup] skip: no symbol or payload.{} — {}", eventIdField, truncateForLog(envelopeJson));
                 return;
             }
             
             // `out` : Flink 넘겨주는 Collector
             // out.collect(x)? x를 다음 연산자로 보낸다는 뜻 
-            out.collect(Tuple3.of(symbol.asText(), id.asText(), envelopeJson));
+            out.collect(Tuple3.of(symbol.asText(), eventId.asText(), envelopeJson));
         } catch (Exception e) {
             log.warn("[dedup] skip: not JSON — {}", truncateForLog(envelopeJson));
         }

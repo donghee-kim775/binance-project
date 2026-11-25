@@ -47,6 +47,10 @@ spec:
             # - usdm.stock.aggtrade:a
             # - usdm.stock.depth:u
           env:
+            # = consumer group 이름 · changelog 토픽 앞부분. 바꾸면 offset과 state를 처음부터 다시 쌓는다
+            #   (deploy/auto-scaling/scaledobject.yaml의 consumerGroup도 같이 바꾼다)
+            - name: KAFKA_APPLICATION_ID
+              value: kstreams-dedup
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: binance-cluster-kafka-bootstrap.binancekafka.svc:9092
             - name: NUM_STREAM_THREADS # pod당 스레드. (현재 route 당 task 3개)

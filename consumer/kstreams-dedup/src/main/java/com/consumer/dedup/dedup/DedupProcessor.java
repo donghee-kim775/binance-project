@@ -1,4 +1,4 @@
-package com.consumer.dedup;
+package com.consumer.dedup.dedup;
 
 import java.time.Duration;
 
@@ -33,11 +33,13 @@ class DedupProcessor implements Processor<String, String, String, String> {
 
     private static final Logger log = LoggerFactory.getLogger(DedupProcessor.class);
 
+    // 초기화 : 인자를 받는 순간
     private final DedupRoute route;
     private final long ttlMs;
 
+    // 초기화 : task 시작하는 순간
     private ProcessorContext<String, String> context;
-    private WindowStore<String, Long> seen;
+    private WindowStore<String, Long> seenStore;
     private ObjectMapper mapper;
 
     DedupProcessor(DedupRoute route, Duration ttl) {
@@ -45,54 +47,76 @@ class DedupProcessor implements Processor<String, String, String, String> {
         this.ttlMs = ttl.toMillis();
     }
 
-    // [호출] Kafka Streams — task가 이 StreamThread에 할당되어 처음 시작할 때 (리밸런스로 다시 할당되면 또)
-    // [스레드] kstreams-dedup-<uuid>-StreamThread-N
+    // [호출] Kafka Streams — task가 이 StreamThread에 할당되어 처음 시작할 때
     @Override
     public void init(ProcessorContext<String, String> context) {
         this.context = context;
-        // DedupTopology가 이 processor에 붙여 둔 store. task(= 파티션)마다 따로 있다
-        this.seen = context.getStateStore(route.storeName());
+        this.seenStore = context.getStateStore(route.storeName());
         this.mapper = new ObjectMapper();
     }
 
     // [호출] Kafka Streams — raw 레코드마다 (같은 파티션의 레코드는 offset 순서대로)
-    // [스레드] kstreams-dedup-<uuid>-StreamThread-N
     @Override
     public void process(Record<String, String> record) {
-        // 1. envelope에서 symbol과 이벤트 id만 꺼낸다. 깨진 메시지는 버린다
-        //    (예외를 던지면 StreamThread가 죽고, 다시 떠도 같은 메시지에서 또 실패한다)
-        ObjectNode envelope;
-        String dedupKey;
+        // 1. envelope에서 symbol과 이벤트 id만 꺼낸다. 
+        ObjectNode envelope; // 원본 메시징
+        String dedupKey; // dedup key
+
+        // 1. envelop 에서 message 꺼낸 후 validate => 깨진 메시지는 버린다(return;)
         try {
+            // parsing
             envelope = (ObjectNode) mapper.readTree(record.value());
-            JsonNode symbol = envelope.path("symbol");                                // "BTCUSDT"
-            JsonNode id = envelope.path("payload").path(route.eventIdField());        // 5001
-            if (!symbol.isTextual() || id.isMissingNode() || id.isNull()) {
-                log.warn("[dedup] skip: no symbol or payload.{} — {}", route.eventIdField(), truncate(record.value()));
-                return;
+            JsonNode symbol = envelope.path("symbol");                                     // "BTCUSDT"
+            JsonNode eventId = envelope.path("payload").path(route.eventIdField());        // 5001
+
+            // validate
+            if (!validate(symbol, eventId, record.value())) {
+                return; // symbol이나 이벤트 id가 없음 → 버림
             }
-            dedupKey = symbol.asText() + "|" + id.asText();                           // "BTCUSDT|5001"
-        } catch (Exception e) {
+            
+            // make dedupkey
+            dedupKey = symbol.asText() + "|" + eventId.asText();                     // "BTCUSDT|5001"
+        } catch (Exception e) { // 예외 처리
             log.warn("[dedup] skip: not JSON — {}", truncate(record.value()));
             return;
         }
 
-        // 2. 앞뒤 ttl 안에 같은 키가 있었나. 두 pod의 timestamp는 수십 ms 차이라 어느 쪽이 먼저 와도 잡힌다
-        long ts = record.timestamp();
-        try (WindowStoreIterator<Long> it = seen.fetch(dedupKey, ts - ttlMs, ts + ttlMs)) {
-            if (it.hasNext()) {
-                return; // 이미 보낸 이벤트 → 버림
+        // 2. seenStore 검증
+        long arriveTs = record.timestamp();    // record 도착 시간
+        // dedup key, [arriveTs - 1분] ~ [arriveTs + 1분] cursor 선언
+        WindowStoreIterator<Long> matchesCursor = seenStore.fetch(
+            dedupKey, 
+            arriveTs - ttlMs, 
+            arriveTs + ttlMs
+        );
+        try {
+            if (matchesCursor.hasNext()) {
+                return; // 이미 보낸 이벤트 → 버림 (return으로 나가도 finally는 실행된다)
             }
+        } finally {
+            matchesCursor.close(); // cursor 자원 정리
         }
 
-        // 3. 처음 본 키 → 기록하고 내보낸다. 키는 그대로 심볼이라 clean도 raw와 같은 파티션 규칙을 따른다
-        seen.put(dedupKey, ts, ts);
+        // 3. seenStore 추가 / 원본 record deduptime 추가
+        seenStore.put(dedupKey, arriveTs, arriveTs);         // store => key, value, ttl 만료시간
         envelope.put("dedup_time", System.currentTimeMillis());
 
+        // 4. porcess 처리 완료 후, 다음 노드로 보내기
+        //  - record 값(dedup_time 추가) 바꾼 후, 다시 패키징해서 보내기
         Record<String, String> out = record.withValue(envelope.toString());
-        context.forward(out); // [다음] sink 노드 → clean 토픽 (EOS 트랜잭션 안에서 store 변경 · offset 커밋과 함께 커밋)
+        context.forward(out);
     }
 
+    // 검증성 : validate 함수
+    private boolean validate(JsonNode symbol, JsonNode eventId, String rawValue) {
+        if (!symbol.isTextual() || eventId.isMissingNode() || eventId.isNull()) {
+            log.warn("[dedup] skip: no symbol or payload.{} — {}", route.eventIdField(), truncate(rawValue));
+            return false;
+        }
+        return true;
+    }
+
+    // 
     private static String truncate(String s) {
         if (s == null) {
             return "null";

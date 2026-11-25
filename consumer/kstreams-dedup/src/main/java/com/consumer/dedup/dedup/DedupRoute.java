@@ -1,4 +1,4 @@
-package com.consumer.dedup;
+package com.consumer.dedup.dedup;
 
 /**
  * raw 토픽 하나를 dedup해서 clean 토픽 하나에 쓰는 경로. Flink dedup(consumer/flink-dedup)의 DedupRoute와 같은 형식이다.

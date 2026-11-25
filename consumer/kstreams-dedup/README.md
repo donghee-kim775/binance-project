@@ -29,11 +29,14 @@ kstreams-dedup/
 ├── deploy/dedup.yaml               # Deployment kstreams-dedup (namespace binance-processing, replicas 2)
 └── src/
     ├── main/java/com/consumer/dedup/
-    │   ├── DedupApp.java           # main(): 설정(EOS, 복제 3), 상태 리스너, 종료 hook
-    │   ├── DedupTopology.java      # 경로마다 raw → dedup → clean, store 붙이기
-    │   ├── DedupProcessor.java     # (symbol, id) 추출 → window store 조회 · 기록 → dedup_time
-    │   └── DedupRoute.java         # 인자 "spot.crypto.bookticker:u" → raw · clean 토픽
-    └── test/java/.../DedupTopologyTest.java   # TopologyTestDriver (broker 없이)
+    │   ├── DedupApp.java               # main(): 상태 리스너, 종료 hook
+    │   ├── config/
+    │   │   └── KafkaConfig.java        # Kafka Streams 설정 (EOS, 복제 3, changelog 보존)
+    │   └── dedup/
+    │       ├── DedupTopology.java      # 경로마다 raw → dedup → clean, store 붙이기
+    │       ├── DedupProcessor.java     # (symbol, id) 추출 → window store 조회 · 기록 → dedup_time
+    │       └── DedupRoute.java         # 인자 "spot.crypto.bookticker:u" → raw · clean 토픽
+    └── test/java/.../dedup/DedupTopologyTest.java   # TopologyTestDriver (broker 없이)
 ```
 
 ## 동작
@@ -42,7 +45,7 @@ kstreams-dedup/
 - **지우기:** 보존 기간(1분)이 지난 항목은 store가 지운다. 기준은 벽시계가 아니라 그 task가 본 가장 늦은 레코드 timestamp(stream time)다.
 - **깨진 메시지:** JSON이 아니거나 `symbol` · id 필드가 없으면 경고 로그를 남기고 버린다.
 - **실패:** 잡히지 않은 예외가 나면 인스턴스를 내리고 `exit(1)`해서 Kubernetes가 pod를 다시 띄운다.
-- **pod 2개:** task를 나눠 가진다 (경로 하나면 task 3개 → 2 + 1). 한 pod가 죽으면 남은 pod가 리밸런스로 받아 changelog에서 store를 복원한다. changelog는 보존 2분 · segment 10분으로 만들어(`DedupApp.config`) 복원할 양이 최대 십여 분치다 (기본값이면 하루치 이상).
+- **pod 2개:** task를 나눠 가진다 (경로 하나면 task 3개 → 2 + 1). 한 pod가 죽으면 남은 pod가 리밸런스로 받아 changelog에서 store를 복원한다. changelog는 보존 2분 · segment 10분으로 만들어(`config/KafkaConfig.create`) 복원할 양이 최대 십여 분치다 (기본값이면 하루치 이상).
 - **Flink와 나란히 비교:** `kubectl apply -k compare` — 출력이 `binance.clean.spot.crypto.bookticker.kstreams`로 간다 (env `CLEAN_TOPIC_SUFFIX`). 띄우기 전에 `kstreams-dedup` group offset을 `--to-latest`로 맞춘다.
 
 ## 테스트

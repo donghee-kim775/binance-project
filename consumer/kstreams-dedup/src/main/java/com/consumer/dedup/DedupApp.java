@@ -5,15 +5,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.streams.KafkaStreams;
-import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.errors.StreamsUncaughtExceptionHandler.StreamThreadExceptionResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.consumer.dedup.config.KafkaConfig;
+import com.consumer.dedup.dedup.DedupRoute;
+import com.consumer.dedup.dedup.DedupTopology;
 
 /**
  * Kafka Streams dedup 앱. raw 토픽마다 (symbol, id)가 처음 온 것만 clean 토픽으로 보낸다.
@@ -29,16 +30,19 @@ public class DedupApp {
 
     private static final Logger log = LoggerFactory.getLogger(DedupApp.class);
 
-    // consumer group 이름이기도 하다 (kafka-exporter · 대시보드의 consumergroup 라벨). 바꾸면 offset과 state를 처음부터 다시 쌓는다
-    static final String APPLICATION_ID = "kstreams-dedup";
     // 두 pod 사이 도착 시차(수십 ms)보다 넉넉하게. Flink 버전과 같다
-    static final Duration TTL = Duration.ofMinutes(1);
+    public static final Duration TTL = Duration.ofMinutes(1);
 
     public static void main(String[] args) throws Exception {
+    // 0. prepare prop
+        Properties kafkaProperties = KafkaConfig.create(); // [다음] config/KafkaConfig.create
+        
+    // 1. validate args
         if (args.length == 0) {
             throw new IllegalArgumentException("경로 인자가 없다. deploy/dedup.yaml의 args를 확인한다");
         }
-        // 비교 실행용: Flink dedup과 같은 clean 토픽에 쓰지 않도록 clean 토픽 이름 뒤에 붙인다 (예: ".kstreams"). 평소에는 비워 둔다
+
+    // 2. args parsing -> topology
         String cleanSuffix = env("CLEAN_TOPIC_SUFFIX", "");
 
         List<DedupRoute> routes = new ArrayList<>();
@@ -48,84 +52,45 @@ public class DedupApp {
         }
 
         Topology topology = DedupTopology.build(routes, TTL);
-        log.info("[dedup] routes={}\n{}", routes, topology.describe());
 
-        KafkaStreams streams = new KafkaStreams(topology, config());
-
-        // main 스레드는 종료 신호를 기다리기만 한다. 실제 처리는 StreamThread가 한다
-        CountDownLatch done = new CountDownLatch(1);
-        AtomicBoolean failed = new AtomicBoolean(false);
-
-        // 처리 중 잡히지 않은 예외 → 이 인스턴스를 내린다 → 아래 리스너가 exit(1) → Kubernetes가 pod를 다시 띄운다
-        // (REPLACE_THREAD로 스레드만 다시 띄우면 같은 레코드에서 계속 실패하며 pod는 Running으로 보인다)
-        // [호출] Kafka Streams — StreamThread에서 예외가 빠져나왔을 때
-        streams.setUncaughtExceptionHandler(e -> {
-            log.error("[dedup] stream thread failed", e);
+    // 3. KafkaStreams 생성 (topology + 설정을 묶기만 한다. 아직 Kafka에 붙지 않음)
+        KafkaStreams streams = new KafkaStreams(topology, kafkaProperties);
+        // + StreamThread 예외 처리
+        // error 발생시 SHUTDOWN_CLIENT => StreaThread 멈춤 => 상태 ERROR
+        streams.setUncaughtExceptionHandler(error -> {
+            log.error("[dedup] stream thread failed", error);
             return StreamThreadExceptionResponse.SHUTDOWN_CLIENT;
         });
 
-        // [호출] Kafka Streams — 상태가 바뀔 때마다 (CREATED → REBALANCING → RUNNING, 오류 시 → ERROR)
+    // 4. 종료 신호 : main은 이 신호가 올 때까지 기다린다 (처리는 StreamThread가 한다)
+        CountDownLatch latch = new CountDownLatch(1);        
+        
+    // 5-a. Stream 상태가 바뀌면 취할 행동
+        // 상태가 변경된다.
+        // StateListener.onChange() =>
+        //  error? => latch.countDown() => latch.await() 풀림
         streams.setStateListener((newState, oldState) -> {
-            log.info("[dedup] state {} -> {}", oldState, newState);
             if (newState == KafkaStreams.State.ERROR) {
-                failed.set(true);
-                done.countDown();
+                latch.countDown();
             }
         });
 
-        // [호출] JVM — SIGTERM (pod 종료, kubectl rollout) 때
-        // [스레드] JVM shutdown hook 스레드
+    // 5-b. SIGTERM(pod 종료) → 종료 스레드 생성
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            // 진행 중인 트랜잭션을 커밋하고 consumer group에서 나간다. terminationGracePeriodSeconds(30)보다 짧게
-            streams.close(Duration.ofSeconds(20));
-            done.countDown();
-        }, "dedup-shutdown"));
+            streams.close(Duration.ofSeconds(20)); // KStreams 종료 : 처리 시간 기준 - 20초
+            latch.countDown();
+        }, "dedup-shutdown") // 종료 스레드 이름
+        );
 
-        streams.start(); // [다음] StreamThread가 뜨고 리밸런스로 task를 받은 뒤 DedupProcessor.init → process
-        done.await();
+    // 6. 실행 → 종료 신호까지 대기
+        streams.start(); // [다음] StreamThread → DedupProcessor.init → process
+        latch.await();
 
-        if (failed.get()) {
-            streams.close(Duration.ofSeconds(20));
-            System.exit(1);
+    // 7. KStreams ERROR로 인한 종료로직
+        boolean failed = streams.state() == KafkaStreams.State.ERROR;
+        if (failed) {
+            System.exit(1); // 7)의 shutdown hook이 close를 부른다
         }
-    }
-
-    // Kafka 설정
-    static Properties config() {
-        Properties p = new Properties();
-        p.put(StreamsConfig.APPLICATION_ID_CONFIG, APPLICATION_ID);
-        p.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, env("KAFKA_BOOTSTRAP_SERVERS", "localhost:19090"));
-
-        // exactly-once (트랜잭션). 커밋 간격 기본값이 100ms라 clean을 read_committed로 읽는 쪽도 거의 바로 본다
-        p.put(StreamsConfig.PROCESSING_GUARANTEE_CONFIG, StreamsConfig.EXACTLY_ONCE_V2);
-
-        // 스레드 수. task(= 경로 수 × 파티션 3)를 이 pod 안 스레드와 다른 pod가 나눠 가진다
-        p.put(StreamsConfig.NUM_STREAM_THREADS_CONFIG, env("NUM_STREAM_THREADS", "1"));
-
-        // task 잠금 파일 · 오프셋 체크포인트 파일 위치 (store는 in-memory라 데이터는 여기 없다)
-        p.put(StreamsConfig.STATE_DIR_CONFIG, env("STATE_DIR", "/tmp/kafka-streams"));
-
-        // Kafka Streams가 만드는 내부 토픽(changelog)도 다른 토픽처럼 복제 3 · min ISR 2
-        p.put(StreamsConfig.REPLICATION_FACTOR_CONFIG, 3);
-        p.put(StreamsConfig.topicPrefix("min.insync.replicas"), "2");
-        
-        // changelog 토픽안 레코드의 보존 기간 : store 보존 기간(TTL 1분) + 설정 값(현재는 1분)
-        p.put(StreamsConfig.WINDOW_STORE_CHANGE_LOG_ADDITIONAL_RETENTION_MS_CONFIG, 
-                Duration.ofMinutes(1).toMillis());
-        
-        // changelog 토픽의 segment 파일을 몇분마다 얼마마다 열지
-        // - default - 7일 / 16MiB
-        // - custom - 60분 / 한도 없음
-        // => failover 때 restore 양을 결정 => 복구 시간 결정
-        p.put(StreamsConfig.topicPrefix("segment.ms"),
-                String.valueOf(Duration.ofMinutes(60).toMillis()));
-        p.put(StreamsConfig.topicPrefix("retention.bytes"), 
-                "-1");
-
-        // clean 토픽이 compression.type=zstd라 producer도 zstd로 보낸다 (다르면 broker가 다시 압축한다)
-        p.put(StreamsConfig.producerPrefix(ProducerConfig.COMPRESSION_TYPE_CONFIG), "zstd");
-
-        return p;
     }
 
     private static String env(String name, String defaultValue) {
