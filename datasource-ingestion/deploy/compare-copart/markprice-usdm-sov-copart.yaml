@@ -1,0 +1,89 @@
+# markprice-usdm-sov-copart-copart — co-partitioning 실험용 (fixed-rate · Active-Standby, replicas 1)
+# 기본 markprice-usdm-sov-copart와 같은 구독을 따로 받아, Flink key group 규칙으로 파티션을 골라 .copart 토픽에 쓴다
+# 구독: BTC × markPrice@1s  (소켓 1개). 심볼을 바꾸면 기본 markprice-usdm-sov-copart · spot-sov와 같게 맞춘다
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: markprice-usdm-sov-copart-config
+  namespace: binance-ingestion
+  labels:
+    app.kubernetes.io/name: ingestion-collector
+    app.kubernetes.io/instance: markprice-usdm-sov-copart
+    rate-group: fixed
+data:
+  # /config/application.yaml로 마운트되어 이미지 안의 application.yml을 덮어쓴다
+  application.yaml: |
+    binance:
+      subscription:
+        group: fixed-rate
+        product: usdm
+        asset-class: crypto
+        sector: sov
+        symbols: [BTCUSDT]
+        streams:
+          - stream: markPrice@1s
+            route-prefix: "/market"
+            topic: binance.raw.usdm.crypto.markprice.copart
+    # Kafka 기본 partitioner(murmur2) 대신 "이 심볼을 맡을 flink-basis-copart subtask" 기준 (FlinkKeyGroupPartitioner)
+    spring:
+      kafka:
+        producer:
+          properties:
+            partitioner.class: com.ingestion.kafka.FlinkKeyGroupPartitioner
+            flink.max-parallelism: 128   # flink-basis-copart의 maxParallelism과 같게
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: markprice-usdm-sov-copart
+  namespace: binance-ingestion
+  labels:
+    app.kubernetes.io/name: ingestion-collector
+    app.kubernetes.io/instance: markprice-usdm-sov-copart
+    rate-group: fixed
+spec:
+  replicas: 1   # Active-Standby(재시작 기반): 중복이 생기지 않아 dedup 불필요
+  strategy:
+    type: Recreate   # 기존 pod를 먼저 내리고 새 pod를 띄움 → 두 pod가 동시에 발행하는 순간이 없음 (대신 재시작 동안 공백)
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: markprice-usdm-sov-copart
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ingestion-collector
+        app.kubernetes.io/instance: markprice-usdm-sov-copart
+        rate-group: fixed
+        product: usdm
+        asset-class: crypto
+        sector: sov
+    spec:
+      terminationGracePeriodSeconds: 30   # @PreDestroy에서 WebSocket close 프레임을 보낼 시간
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: collector
+          image: kimdonghee125/ingestion-collector:0.0.2   # FlinkKeyGroupPartitioner가 들어간 버전
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ingestion-common
+          env:
+            - name: COLLECTOR_ID           # envelope의 collector_id (어느 pod가 보낸 메시지인지)
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: application-config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: application-config
+          configMap:
+            name: markprice-usdm-sov-copart-config

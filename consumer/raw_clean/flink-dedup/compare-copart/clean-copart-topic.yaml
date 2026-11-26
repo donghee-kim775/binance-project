@@ -1,0 +1,17 @@
+# co-partitioning 실험용 clean 토픽. 파티션 수 = flink-basis-copart 병렬도(3) = markprice .copart 파티션 수
+# 토픽 이름 규칙을 벗어나므로 Infra/Kafka/Kafka-Topic에 두지 않는다
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: binance.clean.spot.crypto.bookticker.copart
+  namespace: binancekafka
+  labels:
+    strimzi.io/cluster: binance-cluster
+spec:
+  partitions: 3     # 바꾸면 flink-basis-copart 병렬도 · 두 partitioner와 함께 바꾼다
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    retention.ms: 86400000
+    cleanup.policy: delete
+    compression.type: zstd

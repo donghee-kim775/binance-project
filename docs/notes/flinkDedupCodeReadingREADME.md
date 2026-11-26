@@ -3,7 +3,7 @@
 raw 토픽에는 Active-Active pod 2개가 같은 이벤트를 각자 보내서 중복이 있다. 이 중복을 지워 clean 토픽으로 옮기는 dedup job을 처음 읽을 때 따라갈 순서다.
 **배포 yaml → `main` → 레코드 하나 → 체크포인트** 순으로 본다. 예시는 `binance.raw.spot.crypto.bookticker`에 실제로 들어온 메시지다.
 
-설계 이유(경로를 job 하나로 묶은 이유, 키, TTL 1분)는 [consumer/flink-design.md](../../consumer/flink-design.md), 실행 방법은 [flink-dedup/README.md](../../consumer/flink-dedup/README.md)에 있다.
+설계 이유(경로를 job 하나로 묶은 이유, 키, TTL 1분)는 [consumer/flink-design.md](../../consumer/flink-design.md), 실행 방법은 [flink-dedup/README.md](../../consumer/raw_clean/flink-dedup/README.md)에 있다.
 레코드가 각 단계에서 어느 스레드 · 버퍼 · state를 지나는지는 [flinkDedupRuntimeFlowREADME.md](flinkDedupRuntimeFlowREADME.md)에 따로 정리했다.
 
 ---
@@ -26,11 +26,11 @@ TaskManager pod ── 레코드를 실제로 처리
 
 | 순서 | 파일 | 보는 것 |
 | --- | --- | --- |
-| 1 | [deploy/dedup.yaml](../../consumer/flink-dedup/deploy/dedup.yaml) | yaml 값이 어디로 들어가나 |
-| 2 | [DedupJob.java](../../consumer/flink-dedup/src/main/java/com/consumer/dedup/DedupJob.java) `main` | job 조립 |
-| 3 | [DedupRoute.java](../../consumer/flink-dedup/src/main/java/com/consumer/dedup/DedupRoute.java) | 인자 문자열 → raw · clean 토픽 |
-| 4 | [DedupJob.java](../../consumer/flink-dedup/src/main/java/com/consumer/dedup/DedupJob.java) `addRoute` | 경로 하나의 파이프라인 |
-| 5 | [KafkaIO](../../consumer/flink-dedup/src/main/java/com/consumer/common/KafkaIO.java) → [DedupKeyParser](../../consumer/flink-dedup/src/main/java/com/consumer/dedup/DedupKeyParser.java) → [DedupFunction](../../consumer/flink-dedup/src/main/java/com/consumer/dedup/DedupFunction.java) → [KafkaIO](../../consumer/flink-dedup/src/main/java/com/consumer/common/KafkaIO.java) | 레코드 하나의 변환 |
+| 1 | [deploy/dedup.yaml](../../consumer/raw_clean/flink-dedup/deploy/dedup.yaml) | yaml 값이 어디로 들어가나 |
+| 2 | [DedupJob.java](../../consumer/raw_clean/flink-dedup/src/main/java/com/consumer/dedup/DedupJob.java) `main` | job 조립 |
+| 3 | [DedupRoute.java](../../consumer/raw_clean/flink-dedup/src/main/java/com/consumer/dedup/DedupRoute.java) | 인자 문자열 → raw · clean 토픽 |
+| 4 | [DedupJob.java](../../consumer/raw_clean/flink-dedup/src/main/java/com/consumer/dedup/DedupJob.java) `addRoute` | 경로 하나의 파이프라인 |
+| 5 | [KafkaIO](../../consumer/raw_clean/flink-dedup/src/main/java/com/consumer/common/KafkaIO.java) → [DedupKeyParser](../../consumer/raw_clean/flink-dedup/src/main/java/com/consumer/dedup/DedupKeyParser.java) → [DedupFunction](../../consumer/raw_clean/flink-dedup/src/main/java/com/consumer/dedup/DedupFunction.java) → [KafkaIO](../../consumer/raw_clean/flink-dedup/src/main/java/com/consumer/common/KafkaIO.java) | 레코드 하나의 변환 |
 | 6 | 다시 dedup.yaml `flinkConfiguration` | 체크포인트와 재배포 |
 
 ---
@@ -41,7 +41,7 @@ collector는 Spring이 yaml을 `@ConfigurationProperties`에 바인딩했다. �
 
 | yaml | 누가 받나 | 코드에서 |
 | --- | --- | --- |
-| `image`, `job.jarURI` | 이 이미지의 `/opt/flink/usrlib/flink-app.jar`를 실행 | [Dockerfile](../../consumer/flink-dedup/Dockerfile)이 jar를 거기 복사 |
+| `image`, `job.jarURI` | 이 이미지의 `/opt/flink/usrlib/flink-app.jar`를 실행 | [Dockerfile](../../consumer/raw_clean/flink-dedup/Dockerfile)이 jar를 거기 복사 |
 | `job.entryClass` | 이 클래스의 `main` 호출 | `DedupJob.main` |
 | `job.args` | **`main(String[] args)`에 그대로** | `DedupRoute.parse`가 해석 |
 | env `KAFKA_BOOTSTRAP_SERVERS` | 컨테이너 환경 변수 | `KafkaIO.bootstrapServers()` |

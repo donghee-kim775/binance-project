@@ -1,0 +1,39 @@
+# co-partitioning 실험: keyBy 없이 reinterpretAsKeyedStream으로 basis를 계산한다 (BasisCoPartitionJob)
+#   clean .copart (flink-dedup-copart) + mark .copart (markprice-usdm-sov-copart) → flink-basis-copart → binance.analytics.crypto.basis.copart
+#   docker build -t kimdonghee125/flink-join:0.0.4 .          (consumer/clean_analytics/flink-join/ 에서)
+#   docker push kimdonghee125/flink-join:0.0.4
+#   kubectl apply -k consumer/clean_analytics/flink-join/compare-copart
+#   kubectl delete -k consumer/clean_analytics/flink-join/compare-copart     (끝나면)
+# 두 입력을 쓰는 쪽을 먼저 띄운다 (전체 순서: ../README.md "co-partitioning 실험")
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../deploy
+  - basis-copart-topic.yaml
+
+patches:
+  - target:
+      kind: FlinkDeployment
+      name: flink-basis
+    patch: |-
+      # FlinkDeployment의 spec.image는 kustomize images가 바꾸지 못해 patch로 바꾼다
+      - op: replace
+        path: /spec/image
+        value: kimdonghee125/flink-join:0.0.4   # BasisCoPartitionJob이 들어간 버전
+      - op: replace
+        path: /metadata/name
+        value: flink-basis-copart
+      - op: replace
+        path: /spec/job/entryClass
+        value: com.consumer.join.basis.BasisCoPartitionJob
+      # MinIO 경로도 job 이름으로 나눈다 (CLAUDE.md MinIO 경로 규칙)
+      - op: replace
+        path: /spec/flinkConfiguration/execution.checkpointing.dir
+        value: s3://binance/flink/analytics/flink-basis-copart/checkpoints
+      - op: replace
+        path: /spec/flinkConfiguration/execution.checkpointing.savepoint-dir
+        value: s3://binance/flink/analytics/flink-basis-copart/savepoints
+      - op: replace
+        path: /spec/flinkConfiguration/high-availability.storageDir
+        value: s3://binance/flink/analytics/flink-basis-copart/ha

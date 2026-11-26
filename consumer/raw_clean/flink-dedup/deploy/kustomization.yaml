@@ -1,0 +1,6 @@
+# 기본 배포 (kubectl apply -f dedup.yaml 과 같다). compare-copart/ overlay가 이걸 가져다 쓴다
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - dedup.yaml

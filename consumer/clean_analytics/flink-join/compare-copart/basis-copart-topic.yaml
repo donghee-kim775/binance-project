@@ -1,0 +1,16 @@
+# co-partitioning 실험 출력 토픽 (flink-basis-copart). 토픽 이름 규칙을 벗어나므로 Infra/Kafka/Kafka-Topic에 두지 않는다
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: binance.analytics.crypto.basis.copart
+  namespace: binancekafka
+  labels:
+    strimzi.io/cluster: binance-cluster
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    retention.ms: 86400000
+    cleanup.policy: delete
+    compression.type: zstd

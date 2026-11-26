@@ -36,7 +36,7 @@ kubectl get prometheus -n monitoring monitoring-kube-prometheus-prometheus \
 
 - Service가 있는 앱(수집 앱, MinIO) → ServiceMonitor
 - pod를 Operator가 만드는 앱(Flink TaskManager, Strimzi Kafka) → PodMonitor
-- 매니페스트는 각 앱 옆에 둔다 (예: `consumer/flink-dedup/deploy/`). 이 폴더에는 모니터링 스택 자체의 것만 둔다.
+- 매니페스트는 각 앱 옆에 둔다 (예: `consumer/raw_clean/flink-dedup/deploy/`). 이 폴더에는 모니터링 스택 자체의 것만 둔다.
 
 ## 대시보드 관리
 
@@ -47,6 +47,8 @@ Grafana pod에는 sidecar(`grafana-sc-dashboard`)가 있다. sidecar는 모든 n
 | 폴더 | 대시보드 | 지표 출처 |
 | --- | --- | --- |
 | [binance-raw-ingest/](dashboards/binance-raw-ingest/) | `Binance / raw 유입 vs Flink 처리`: 유입 · 처리 속도, consumer lag (records · 초), lag 증가 속도, backpressure. 전체와 파티션별 | Kafka Exporter |
+| [binance-basis-join/](dashboards/binance-basis-join/) | `Binance / basis join: Flink vs Kafka Streams`: 두 버전의 basis 출력 속도, consumer lag, 처리 속도, pod CPU · 메모리 · 네트워크 | Kafka Exporter, cAdvisor |
+| [binance-processing-jobs/](dashboards/binance-processing-jobs/) | `Binance / 처리 job 비교`: **단계(dedup / basis) · job 필터**로 고른 처리 job의 입력 처리 속도, 출력, lag, pod CPU · 메모리 · 네트워크 | Kafka Exporter, cAdvisor, kube-state-metrics |
 | [binance-cluster-health/](dashboards/binance-cluster-health/) | `Binance / 노드 · pod 운영 상태`: 노드 CPU · 메모리 · 디스크 · 네트워크, 수집기 · 처리기 · Kafka · 저장소 pod 상태 표(Ready · 재시작 · OOMKilled 등)와 pod별 CPU · 메모리 | node-exporter, cAdvisor, kube-state-metrics (기본 수집) |
 
 ## 지금 단순화한 것

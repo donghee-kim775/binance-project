@@ -1,0 +1,18 @@
+# 비교 실행용 임시 토픽 — Flink basis와 Kafka Streams basis를 나란히 띄울 때 Kafka Streams가 여기에 쓴다
+# 토픽 이름 규칙을 벗어나므로 Infra/Kafka/Kafka-Topic에 두지 않는다 (kstreams-dedup/compare와 같다).
+# 비교가 끝나면 지운다: kubectl delete -k consumer/clean_analytics/kstreams-join/compare
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: binance.analytics.crypto.basis.kstreams
+  namespace: binancekafka
+  labels:
+    strimzi.io/cluster: binance-cluster
+spec:
+  partitions: 3     # binance.analytics.crypto.basis와 같게
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    retention.ms: 86400000      # 1d (비교용이라 짧게)
+    cleanup.policy: delete
+    compression.type: zstd

@@ -94,7 +94,9 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 │   ├── topic/             Kafka 토픽 설계, Insight 1 토픽 흐름
 │   ├── storage/           MinIO 체크포인트 경로 규칙
 │   └── performance/       단계별 지연 측정과 튜닝 (이슈 기록 단계)
-├── consumer/              처리 앱 (flink-dedup: Flink dedup, kstreams-dedup: Kafka Streams dedup, flink-join: basis join, flink-test: 로컬 테스트), 설계 flink-design.md
+├── consumer/              처리 앱. 폴더 = 입력 계층_출력 계층. 설계 flink-design.md, 로컬 테스트 flink-test/
+│   ├── raw_clean/         raw → clean 중복 제거 (flink-dedup, kstreams-dedup)
+│   └── clean_analytics/   clean(+raw) → analytics basis join (flink-join, kstreams-join)
 ├── datasource-ingestion/  Ingestion 앱
 │   ├── collector/         수집 앱 (Spring Boot). raw만 envelope로 감싸 발행
 │   ├── deploy/            Dockerfile, variable-rate / fixed-rate K8s 매니페스트, 설정→코드 매핑
