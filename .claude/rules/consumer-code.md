@@ -11,8 +11,9 @@
     | --- | --- | --- |
     | `raw_clean/` | raw → clean (중복 제거) | `flink-dedup`, `kstreams-dedup` |
     | `clean_analytics/` | clean(+raw) → analytics (join · 계산) | `flink-join`, `kstreams-join` |
+    | `sink/<인사이트>/` | analytics → Kafka 밖 (Redis · ClickHouse · 알림). at-least-once + 멱등 키 | `insight_1/` (예정) |
 
-  - 단계에 속하지 않는 것(`flink-test/`, `flink-design.md`)은 `consumer/` 바로 아래에 둔다.
+  - 단계에 속하지 않는 것(`flink-design.md`)은 `consumer/` 바로 아래에 둔다.
 - main 클래스 이름: **Flink는 `<Name>Job`**(클러스터에 제출하는 job), **Kafka Streams는 `<Name>App`**(스스로 도는 프로세스).
 - 패키지 `com.consumer.<기능>` 아래:
 

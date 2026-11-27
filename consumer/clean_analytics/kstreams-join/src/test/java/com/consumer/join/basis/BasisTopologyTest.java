@@ -18,7 +18,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import com.consumer.join.BasisApp;
 import com.consumer.join.config.KafkaConfig;
 
 /**
@@ -44,7 +43,7 @@ class BasisTopologyTest {
         kafkaProperties.put(StreamsConfig.STATE_DIR_CONFIG, System.getProperty("java.io.tmpdir") + "/kstreams-join-test");
 
         testDriver = new TopologyTestDriver(
-                BasisTopology.build(SPOT_TOPIC, MARK_TOPIC, BASIS_TOPIC, BasisApp.MAX_SPOT_AGE),
+                BasisTopology.build(SPOT_TOPIC, MARK_TOPIC, BASIS_TOPIC),
                 kafkaProperties);
         spot = testDriver.createInputTopic(SPOT_TOPIC, new StringSerializer(), new StringSerializer());
         mark = testDriver.createInputTopic(MARK_TOPIC, new StringSerializer(), new StringSerializer());
@@ -144,5 +143,19 @@ class BasisTopologyTest {
         mark.pipeInput("BTCUSDT", markEnvelope("BTCUSDT", "105", now), T0);
 
         assertEquals(1, basis.readKeyValuesToList().size());
+    }
+
+    // 호가가 비었거나(0) 뒤집힌 Spot은 table에 넣지 않아 이전의 정상 Spot으로 계산한다
+    @Test
+    void invalidQuoteSpotIsSkipped() {
+        long now = T0.toEpochMilli();
+        spot.pipeInput("BTCUSDT", spotEnvelope("BTCUSDT", "100", "102", now), T0);                                   // 정상 → mid 101
+        spot.pipeInput("BTCUSDT", spotEnvelope("BTCUSDT", "0.00000000", "102", now + 50), T0.plusMillis(50));      // 매수 호가 비어 있음
+        spot.pipeInput("BTCUSDT", spotEnvelope("BTCUSDT", "0.00000000", "0.00000000", now + 60), T0.plusMillis(60)); // 양쪽 비어 있음
+        spot.pipeInput("BTCUSDT", spotEnvelope("BTCUSDT", "103", "102", now + 70), T0.plusMillis(70));             // ask < bid (뒤집힘)
+        mark.pipeInput("BTCUSDT", markEnvelope("BTCUSDT", "105", now + 100), T0.plusMillis(100));
+
+        String value = basis.readValue();
+        assertTrue(value.contains("\"spot_mid\":\"101\""));
     }
 }

@@ -59,11 +59,21 @@ class SpotMidParser extends ProcessFunction<String, SpotMid> {
         }
     }
 
-    // 심볼, 최우선 매수(b) · 매도(a) 호가가 있어야 mid를 계산할 수 있다. 없으면 로그를 남기고 false
+    // 심볼, 최우선 매수(b) · 매도(a) 호가가 있고 정상이어야 mid를 계산할 수 있다. 아니면 로그를 남기고 false
     private static boolean validate(BinanceEventEnvelope envelope, JsonNode payload, String envelopeJson) {
         if (envelope.symbol() == null || payload == null
                 || !payload.path("b").isTextual() || !payload.path("a").isTextual()) {
             log.warn("[basis] skip spot: no symbol or payload.b/a — {}", Logs.truncate(envelopeJson));
+            return false;
+        }
+        // 호가가 양수이고 뒤집히지 않아야(ask ≥ bid) mid를 믿을 수 있다
+        //  - 한쪽 호가가 비어 0이 오면 mid가 반값이 되어 basis가 수십 % 로 튄다 → 거짓 과열 알림
+        //  - 둘 다 0이면 뒤의 bps 계산(÷ spot_mid)이 0으로 나눈다
+        //  - 숫자가 아니면 BigDecimal이 예외를 던지고 바깥 catch가 "not a valid envelope"로 버린다
+        BigDecimal bid = new BigDecimal(payload.get("b").asText());
+        BigDecimal ask = new BigDecimal(payload.get("a").asText());
+        if (bid.signum() <= 0 || ask.signum() <= 0 || ask.compareTo(bid) < 0) {
+            log.warn("[basis] skip spot: bid/ask not positive or crossed — {}", Logs.truncate(envelopeJson));
             return false;
         }
         return true;

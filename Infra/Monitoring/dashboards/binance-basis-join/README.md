@@ -1,11 +1,16 @@
 # binance-basis-join
 
-`Binance / basis join: Flink vs Kafka Streams` 대시보드. 같은 입력으로 basis를 내는 두 버전을 나란히 비교한다.
+`Binance / basis join: Flink(keyBy · co-partition) vs Kafka Streams` 대시보드. 같은 입력으로 basis를 내는 세 경로를 비교한다. 맨 위는 **경로마다 한 줄**(출력 · lag · CPU · 메모리를 큰 숫자 + 배경 그래프로), 아래는 세 경로를 한 그래프에 겹쳐 그린다. 떠 있지 않은 경로는 `-`로 나온다.
 
-| 버전 | 코드 | 실행 | consumer group | 출력 토픽 |
+| 범례 | 코드 · 실행 | consumer group | 출력 토픽 | 색 |
 | --- | --- | --- | --- | --- |
-| Flink | [consumer/clean_analytics/flink-join](../../../../consumer/clean_analytics/flink-join/) | FlinkDeployment `flink-basis` (JobManager 1 + TaskManager 3) | `flink-basis` | `binance.analytics.crypto.basis` |
-| Kafka Streams | [consumer/clean_analytics/kstreams-join](../../../../consumer/clean_analytics/kstreams-join/) | Deployment `kstreams-basis` (pod 2), compare overlay | `kstreams-basis` | `binance.analytics.crypto.basis.kstreams` |
+| Flink keyBy | [flink-join](../../../../consumer/clean_analytics/flink-join/) `BasisJob`, FlinkDeployment `flink-basis` | `flink-basis` | `binance.analytics.crypto.basis` | 주황 |
+| Flink co-partition | [flink-join](../../../../consumer/clean_analytics/flink-join/) `BasisCoPartitionJob`, `compare-copart` overlay | `flink-basis-copart` | `…basis.copart` | 보라 |
+| Kafka Streams | [kstreams-join](../../../../consumer/clean_analytics/kstreams-join/) `compare-kdedup` overlay (Kafka Streams dedup 결과를 읽음, K→K) | `kstreams-basis-kdedup` | `…basis.kdedup.kstreams` | 파랑 |
+
+- 꺼져 있어도 consumer group의 offset이 남아 있으면 **lag**에는 큰 값이 보인다. CPU · 메모리가 `-`면 꺼진 경로다.
+- F→K(`kstreams-basis`)를 보려면 생성 스크립트의 `VERSIONS`에 한 줄 추가한다.
+- co-partition 경로의 원리와 띄우는 순서는 [flink-join README](../../../../consumer/clean_analytics/flink-join/README.md)의 "co-partitioning 실험"에 있다.
 
 지표는 Kafka Exporter(출력 offset, consumer lag)와 cAdvisor(pod CPU · 메모리 · 네트워크)만 쓴다. 두 앱에 reporter를 붙이지 않아도 된다. 색은 **Flink 주황, Kafka Streams 파랑**이다.
 

@@ -1,8 +1,10 @@
-# Grafana 대시보드: 처리 job 비교 — 위쪽 필터로 단계(dedup / basis)와 job을 골라 같은 패널에 나란히 본다
+# Grafana 대시보드: 처리 파이프라인 비교 — 같은 raw를 읽는 세 파이프라인(dedup → basis)을 나란히 본다
+#   Kafka Streams      : kstreams-dedup     → kstreams-basis-kdedup
+#   Flink 셔플         : flink-dedup        → flink-basis          (keyBy)
+#   Flink co-partition : flink-dedup-copart → flink-basis-copart   (reinterpretAsKeyedStream)
 # - 라벨 grafana_dashboard: "1" 이면 Grafana sidecar가 자동으로 불러온다 (Infra/Monitoring/README.md)
 # - 지표 출처: Kafka Exporter (offset, lag) + cAdvisor (pod CPU · 메모리 · 네트워크) + kube-state-metrics (Ready)
-# - job 이름 = consumer group = Deployment · FlinkDeployment 이름이라는 규칙에 기댄다 (같은 폴더 README.md)
-# - 생성 스크립트로 만들었다. 패널을 고칠 때는 JSON을 직접 고쳐도 된다
+# - 파이프라인 구성은 생성 스크립트의 PIPELINES에 있다. 패널을 고칠 때는 JSON을 직접 고쳐도 된다
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,14 +16,14 @@ data:
   binance-processing-jobs.json: |
     {
       "uid": "binance-processing-jobs",
-      "title": "Binance / 처리 job 비교 (단계 · job 필터)",
+      "title": "Binance / 처리 파이프라인 비교 (dedup → basis)",
       "tags": [
         "binance"
       ],
       "timezone": "browser",
       "refresh": "10s",
       "time": {
-        "from": "now-30m",
+        "from": "now-15m",
         "to": "now"
       },
       "schemaVersion": 39,
@@ -33,56 +35,6 @@ data:
             "type": "datasource",
             "query": "prometheus",
             "current": {}
-          },
-          {
-            "name": "stage",
-            "label": "단계",
-            "type": "custom",
-            "query": "dedup (raw → clean) : (flink|kstreams)-dedup,basis (clean → analytics) : (flink|kstreams)-basis.*",
-            "current": {
-              "text": "dedup (raw → clean)",
-              "value": "(flink|kstreams)-dedup"
-            },
-            "options": [
-              {
-                "text": "dedup (raw → clean)",
-                "value": "(flink|kstreams)-dedup",
-                "selected": true
-              },
-              {
-                "text": "basis (clean → analytics)",
-                "value": "(flink|kstreams)-basis.*",
-                "selected": false
-              }
-            ],
-            "multi": false,
-            "includeAll": false
-          },
-          {
-            "name": "job",
-            "label": "job",
-            "type": "query",
-            "datasource": {
-              "type": "prometheus",
-              "uid": "${datasource}"
-            },
-            "query": {
-              "query": "label_values(kafka_consumergroup_lag{consumergroup=~\"$stage\"}, consumergroup)",
-              "refId": "job"
-            },
-            "definition": "label_values(kafka_consumergroup_lag{consumergroup=~\"$stage\"}, consumergroup)",
-            "multi": true,
-            "includeAll": true,
-            "current": {
-              "text": [
-                "All"
-              ],
-              "value": [
-                "$__all"
-              ]
-            },
-            "refresh": 2,
-            "sort": 1
           }
         ]
       },
@@ -90,7 +42,7 @@ data:
         {
           "id": 901,
           "type": "row",
-          "title": "지금 (선택한 job)",
+          "title": "① 파이프라인 합계 (dedup + basis)",
           "collapsed": false,
           "gridPos": {
             "x": 0,
@@ -103,12 +55,12 @@ data:
         {
           "id": 2,
           "type": "stat",
-          "title": "입력 처리 /s",
-          "description": "job(consumer group)이 초당 처리하고 커밋한 레코드 수. basis job은 Spot clean + mark 합",
+          "title": "CPU",
+          "description": "dedup + basis pod CPU 합 (core, 2분 평균)",
           "gridPos": {
             "x": 0,
             "y": 1,
-            "w": 6,
+            "w": 5,
             "h": 5
           },
           "datasource": {
@@ -118,15 +70,15 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (consumergroup) (rate(kafka_consumergroup_current_offset{consumergroup=~\"(${job:pipe})\"}[1m]))",
-              "legendFormat": "{{consumergroup}}",
+              "expr": "label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}|kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
               "instant": true
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "suffix: /s",
-              "decimals": 0,
+              "unit": "suffix: core",
+              "decimals": 3,
               "noValue": "-",
               "color": {
                 "mode": "fixed",
@@ -137,14 +89,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -152,14 +104,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -167,59 +119,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -246,12 +153,12 @@ data:
         {
           "id": 3,
           "type": "stat",
-          "title": "출력 /s",
-          "description": "job이 쓰는 토픽의 끝 offset 증가율. Kafka Streams 출력은 트랜잭션 마커만큼 크게 보인다 (basis 6/s → 약 8/s)",
+          "title": "메모리",
+          "description": "dedup + basis pod working set 합",
           "gridPos": {
-            "x": 6,
+            "x": 5,
             "y": 1,
-            "w": 6,
+            "w": 5,
             "h": 5
           },
           "datasource": {
@@ -261,15 +168,15 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "(label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker\"}[1m])), \"app\", \"flink-dedup\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker.kstreams\"}[1m])), \"app\", \"kstreams-dedup\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis\"}[1m])), \"app\", \"flink-basis\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.kstreams\"}[1m])), \"app\", \"kstreams-basis\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.kdedup.flink\"}[1m])), \"app\", \"flink-basis-kdedup\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.kdedup.kstreams\"}[1m])), \"app\", \"kstreams-basis-kdedup\", \"\", \"\")) and on(app) label_replace(group by (consumergroup) (kafka_consumergroup_lag{consumergroup=~\"(${job:pipe})\"}), \"app\", \"$1\", \"consumergroup\", \"(.*)\")",
-              "legendFormat": "{{app}}",
+              "expr": "label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}|kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
               "instant": true
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "suffix: /s",
-              "decimals": 1,
+              "unit": "bytes",
+              "decimals": 0,
               "noValue": "-",
               "color": {
                 "mode": "fixed",
@@ -280,14 +187,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -295,14 +202,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -310,59 +217,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -389,12 +251,12 @@ data:
         {
           "id": 4,
           "type": "stat",
-          "title": "lag",
-          "description": "job의 lag 합. Flink는 체크포인트(10s)마다 커밋해 수백까지 오르내린다",
+          "title": "네트워크 송신",
+          "description": "dedup + basis pod 송신 합 (2분 평균)",
           "gridPos": {
-            "x": 12,
+            "x": 10,
             "y": 1,
-            "w": 6,
+            "w": 5,
             "h": 5
           },
           "datasource": {
@@ -404,14 +266,14 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (consumergroup) (clamp_min(kafka_consumergroup_lag{consumergroup=~\"(${job:pipe})\"}, 0))",
-              "legendFormat": "{{consumergroup}}",
+              "expr": "label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}|kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", interface=\"eth0\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
               "instant": true
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "short",
+              "unit": "Bps",
               "decimals": 0,
               "noValue": "-",
               "color": {
@@ -423,14 +285,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -438,14 +300,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -453,59 +315,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -532,12 +349,12 @@ data:
         {
           "id": 5,
           "type": "stat",
-          "title": "CPU",
-          "description": "job pod CPU 합 (2분 평균, core)",
+          "title": "lag (2분 평균)",
+          "description": "dedup + basis lag 합의 2분 평균. Flink는 체크포인트 때만 커밋해 크게 보인다 (추세만 본다)",
           "gridPos": {
-            "x": 18,
+            "x": 15,
             "y": 1,
-            "w": 6,
+            "w": 5,
             "h": 5
           },
           "datasource": {
@@ -547,15 +364,15 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (app) (label_replace(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"(${job:pipe})-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m]), \"app\", \"$1\", \"pod\", \"(.*?)-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\"))",
-              "legendFormat": "{{app}}",
+              "expr": "label_replace(avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"kstreams-dedup|kstreams-basis-kdedup\"}, 0))[2m:15s]), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-dedup|flink-basis\"}, 0))[2m:15s]), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-dedup-copart|flink-basis-copart\"}, 0))[2m:15s]), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
               "instant": true
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "suffix: core",
-              "decimals": 3,
+              "unit": "short",
+              "decimals": 0,
               "noValue": "-",
               "color": {
                 "mode": "fixed",
@@ -566,14 +383,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -581,14 +398,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -596,59 +413,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -675,298 +447,12 @@ data:
         {
           "id": 6,
           "type": "stat",
-          "title": "메모리",
-          "description": "job pod working set 합",
-          "gridPos": {
-            "x": 0,
-            "y": 6,
-            "w": 6,
-            "h": 5
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "sum by (app) (label_replace(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"(${job:pipe})-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}, \"app\", \"$1\", \"pod\", \"(.*?)-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\"))",
-              "legendFormat": "{{app}}",
-              "instant": true
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "bytes",
-              "decimals": 0,
-              "noValue": "-",
-              "color": {
-                "mode": "fixed",
-                "fixedColor": "#9c9c9c"
-              }
-            },
-            "overrides": [
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ]
-            },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value_and_name",
-            "justifyMode": "auto",
-            "orientation": "horizontal",
-            "text": {
-              "titleSize": 11,
-              "valueSize": 18
-            }
-          }
-        },
-        {
-          "id": 7,
-          "type": "stat",
-          "title": "네트워크 송신",
-          "description": "job pod 송신 합 (Flink는 keyBy 셔플, Kafka Streams는 changelog · 트랜잭션)",
-          "gridPos": {
-            "x": 6,
-            "y": 6,
-            "w": 6,
-            "h": 5
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "sum by (app) (label_replace(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"(${job:pipe})-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m]), \"app\", \"$1\", \"pod\", \"(.*?)-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\"))",
-              "legendFormat": "{{app}}",
-              "instant": true
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "Bps",
-              "decimals": 0,
-              "noValue": "-",
-              "color": {
-                "mode": "fixed",
-                "fixedColor": "#9c9c9c"
-              }
-            },
-            "overrides": [
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ]
-            },
-            "colorMode": "value",
-            "graphMode": "none",
-            "textMode": "value_and_name",
-            "justifyMode": "auto",
-            "orientation": "horizontal",
-            "text": {
-              "titleSize": 11,
-              "valueSize": 18
-            }
-          }
-        },
-        {
-          "id": 8,
-          "type": "stat",
           "title": "Ready pod",
-          "description": "Ready 상태인 pod 수 (Flink는 JobManager + TaskManager)",
+          "description": "dedup + basis Ready pod 수 (Flink는 job마다 JobManager 1 + TaskManager 3)",
           "gridPos": {
-            "x": 12,
-            "y": 6,
-            "w": 6,
+            "x": 20,
+            "y": 1,
+            "w": 4,
             "h": 5
           },
           "datasource": {
@@ -976,8 +462,8 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (app) (label_replace(kube_pod_status_ready{namespace=\"binance-processing\", pod=~\"(${job:pipe})-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", condition=\"true\"}, \"app\", \"$1\", \"pod\", \"(.*?)-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\"))",
-              "legendFormat": "{{app}}",
+              "expr": "label_replace(sum(kube_pod_status_ready{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}|kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", condition=\"true\"}), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(kube_pod_status_ready{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", condition=\"true\"}), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(kube_pod_status_ready{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", condition=\"true\"}), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
               "instant": true
             }
           ],
@@ -995,14 +481,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -1010,14 +496,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -1025,59 +511,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -1102,28 +543,28 @@ data:
           }
         },
         {
-          "id": 909,
+          "id": 907,
           "type": "row",
-          "title": "처리량",
+          "title": "② dedup 단계 (raw → clean) · 입력 1개, 세 판 모두 같은 일",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 11,
+            "y": 6,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 10,
-          "type": "timeseries",
-          "title": "입력 토픽 유입",
-          "description": "고른 job들이 읽는 토픽의 유입 (끝 offset 증가율)",
+          "id": 8,
+          "type": "stat",
+          "title": "raw 입력 처리 /s",
+          "description": "raw spot bookTicker를 처리하고 커밋한 속도 (Active-Active라 중복 포함)",
           "gridPos": {
             "x": 0,
-            "y": 12,
-            "w": 8,
-            "h": 8
+            "y": 7,
+            "w": 4,
+            "h": 5
           },
           "datasource": {
             "type": "prometheus",
@@ -1132,33 +573,33 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset[1m])) and on(topic) group by (topic) (kafka_consumergroup_lag{consumergroup=~\"(${job:pipe})\"})",
-              "legendFormat": "{{topic}}"
+              "expr": "label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"kstreams-dedup\", topic=~\"binance.raw.spot.crypto.bookticker\"}[1m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"flink-dedup\", topic=~\"binance.raw.spot.crypto.bookticker\"}[1m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"flink-dedup-copart\", topic=~\"binance.raw.spot.crypto.bookticker\"}[1m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
             }
           ],
           "fieldConfig": {
             "defaults": {
               "unit": "suffix: /s",
+              "decimals": 0,
               "noValue": "-",
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 0,
-                "showPoints": "never"
-              },
-              "decimals": 0
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
             },
             "overrides": [
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -1166,14 +607,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -1181,59 +622,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -1241,31 +637,228 @@ data:
             ]
           },
           "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
+            "reduceOptions": {
               "calcs": [
-                "mean",
-                "max",
                 "lastNotNull"
               ]
             },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 9,
+          "type": "stat",
+          "title": "clean 출력 /s",
+          "description": "clean 토픽 끝 offset 증가율. raw의 약 절반이면 중복이 지워지는 중",
+          "gridPos": {
+            "x": 4,
+            "y": 7,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker.kstreams\"}[1m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker\"}[1m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker.copart\"}[1m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "lag (2분 평균)",
+          "description": "Flink dedup은 체크포인트 1s, Kafka Streams는 100ms마다 커밋",
+          "gridPos": {
+            "x": 8,
+            "y": 7,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"kstreams-dedup\"}, 0))[2m:15s]), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-dedup\"}, 0))[2m:15s]), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-dedup-copart\"}, 0))[2m:15s]), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
             }
           }
         },
         {
           "id": 11,
-          "type": "timeseries",
-          "title": "입력 처리 속도",
-          "description": "입력 토픽 유입과 같은 높이면 따라가는 중",
+          "type": "stat",
+          "title": "CPU",
+          "description": "dedup pod CPU 합 (core, 2분 평균). Kafka Streams는 exactly-once 커밋(100ms) 비용이 여기 들어간다",
           "gridPos": {
-            "x": 8,
-            "y": 12,
-            "w": 8,
-            "h": 8
+            "x": 12,
+            "y": 7,
+            "w": 4,
+            "h": 5
           },
           "datasource": {
             "type": "prometheus",
@@ -1274,33 +867,33 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (consumergroup) (rate(kafka_consumergroup_current_offset{consumergroup=~\"(${job:pipe})\"}[1m]))",
-              "legendFormat": "{{consumergroup}}"
+              "expr": "label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "suffix: /s",
+              "unit": "suffix: core",
+              "decimals": 3,
               "noValue": "-",
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 0,
-                "showPoints": "never"
-              },
-              "decimals": 0
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
             },
             "overrides": [
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -1308,14 +901,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -1323,59 +916,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -1383,30 +931,841 @@ data:
             ]
           },
           "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
+            "reduceOptions": {
               "calcs": [
-                "mean",
-                "max",
                 "lastNotNull"
               ]
             },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
             }
           }
         },
         {
           "id": 12,
-          "type": "timeseries",
-          "title": "출력 속도",
-          "description": "job이 쓰는 토픽의 끝 offset 증가율",
+          "type": "stat",
+          "title": "메모리",
+          "description": "dedup pod working set 합",
           "gridPos": {
             "x": 16,
+            "y": 7,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "네트워크 송신",
+          "description": "dedup pod 송신 합. Flink는 keyBy(symbol|eventId) 셔플로 중복 포함 raw 전체를 한 번 더 보낸다 (co-partition 판도 같다)",
+          "gridPos": {
+            "x": 20,
+            "y": 7,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}\", interface=\"eth0\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 914,
+          "type": "row",
+          "title": "③ basis 단계 (clean + mark → analytics) · co-partition 효과를 보는 곳",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
             "y": 12,
-            "w": 8,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 15,
+          "type": "stat",
+          "title": "입력 처리 /s",
+          "description": "clean Spot + mark를 처리하고 커밋한 속도. Flink는 체크포인트(10s) 때만 커밋해 계단으로 움직인다",
+          "gridPos": {
+            "x": 0,
+            "y": 13,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"kstreams-basis-kdedup\", topic=~\".*\"}[1m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"flink-basis\", topic=~\".*\"}[1m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"flink-basis-copart\", topic=~\".*\"}[1m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 16,
+          "type": "stat",
+          "title": "basis 출력 /s",
+          "description": "mark가 올 때만 1건이라 6심볼이면 약 6/s (처리 능력이 아니다). Kafka Streams는 트랜잭션 마커만큼 크게 보인다",
+          "gridPos": {
+            "x": 4,
+            "y": 13,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.kdedup.kstreams\"}[1m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis\"}[1m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.copart\"}[1m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 1,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 17,
+          "type": "stat",
+          "title": "lag (2분 평균)",
+          "description": "Flink basis는 체크포인트 10s마다 커밋해 수천까지 톱니로 오르내린다",
+          "gridPos": {
+            "x": 8,
+            "y": 13,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"kstreams-basis-kdedup\"}, 0))[2m:15s]), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-basis\"}, 0))[2m:15s]), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-basis-copart\"}, 0))[2m:15s]), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 18,
+          "type": "stat",
+          "title": "CPU",
+          "description": "basis pod CPU 합 (core, 2분 평균)",
+          "gridPos": {
+            "x": 12,
+            "y": 13,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: core",
+              "decimals": 3,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 19,
+          "type": "stat",
+          "title": "메모리",
+          "description": "basis pod working set 합",
+          "gridPos": {
+            "x": 16,
+            "y": 13,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 20,
+          "type": "stat",
+          "title": "네트워크 송신",
+          "description": "basis pod 송신 합. Flink 셔플 ↔ co-partition 차이가 keyBy 셔플 비용이다. 남는 값은 sink · 체크포인트 · heartbeat 같은 고정 비용",
+          "gridPos": {
+            "x": 20,
+            "y": 13,
+            "w": 4,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", interface=\"eth0\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#9c9c9c"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "text": {
+              "titleSize": 11,
+              "valueSize": 18
+            }
+          }
+        },
+        {
+          "id": 921,
+          "type": "row",
+          "title": "dedup 단계 그래프",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 18,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 22,
+          "type": "timeseries",
+          "title": "raw 입력 처리",
+          "description": "같은 높이면 모두 따라가는 중",
+          "gridPos": {
+            "x": 0,
+            "y": 19,
+            "w": 6,
             "h": 8
           },
           "datasource": {
@@ -1416,8 +1775,8 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "(label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker\"}[1m])), \"app\", \"flink-dedup\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker.kstreams\"}[1m])), \"app\", \"kstreams-dedup\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis\"}[1m])), \"app\", \"flink-basis\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.kstreams\"}[1m])), \"app\", \"kstreams-basis\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.kdedup.flink\"}[1m])), \"app\", \"flink-basis-kdedup\", \"\", \"\") or label_replace(sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.kdedup.kstreams\"}[1m])), \"app\", \"kstreams-basis-kdedup\", \"\", \"\")) and on(app) label_replace(group by (consumergroup) (kafka_consumergroup_lag{consumergroup=~\"(${job:pipe})\"}), \"app\", \"$1\", \"consumergroup\", \"(.*)\")",
-              "legendFormat": "{{app}}"
+              "expr": "label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"kstreams-dedup\", topic=~\"binance.raw.spot.crypto.bookticker\"}[1m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"flink-dedup\", topic=~\"binance.raw.spot.crypto.bookticker\"}[1m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"flink-dedup-copart\", topic=~\"binance.raw.spot.crypto.bookticker\"}[1m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
             }
           ],
           "fieldConfig": {
@@ -1429,175 +1788,20 @@ data:
                 "fillOpacity": 0,
                 "showPoints": "never"
               },
-              "decimals": 1
-            },
-            "overrides": [
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "mean",
-                "max",
-                "lastNotNull"
-              ]
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          }
-        },
-        {
-          "id": 913,
-          "type": "row",
-          "title": "lag",
-          "collapsed": false,
-          "gridPos": {
-            "x": 0,
-            "y": 20,
-            "w": 24,
-            "h": 1
-          },
-          "panels": []
-        },
-        {
-          "id": 14,
-          "type": "timeseries",
-          "title": "lag (job별)",
-          "description": "계속 오르면 밀리는 것",
-          "gridPos": {
-            "x": 0,
-            "y": 21,
-            "w": 12,
-            "h": 8
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "sum by (consumergroup) (clamp_min(kafka_consumergroup_lag{consumergroup=~\"(${job:pipe})\"}, 0))",
-              "legendFormat": "{{consumergroup}}"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "noValue": "-",
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 0,
-                "showPoints": "never"
-              },
               "decimals": 0
             },
             "overrides": [
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -1605,14 +1809,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -1620,59 +1824,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -1696,14 +1855,14 @@ data:
           }
         },
         {
-          "id": 15,
+          "id": 23,
           "type": "timeseries",
-          "title": "lag (job · 토픽별)",
-          "description": "basis job은 Spot과 mark 중 어느 쪽이 밀리는지",
+          "title": "CPU",
+          "description": "dedup pod CPU 합",
           "gridPos": {
-            "x": 12,
-            "y": 21,
-            "w": 12,
+            "x": 6,
+            "y": 19,
+            "w": 6,
             "h": 8
           },
           "datasource": {
@@ -1713,163 +1872,8 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (consumergroup, topic) (clamp_min(kafka_consumergroup_lag{consumergroup=~\"(${job:pipe})\"}, 0))",
-              "legendFormat": "{{consumergroup}} · {{topic}}"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "noValue": "-",
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 0,
-                "showPoints": "never"
-              },
-              "decimals": 0
-            },
-            "overrides": [
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "mean",
-                "max",
-                "lastNotNull"
-              ]
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          }
-        },
-        {
-          "id": 916,
-          "type": "row",
-          "title": "자원",
-          "collapsed": false,
-          "gridPos": {
-            "x": 0,
-            "y": 29,
-            "w": 24,
-            "h": 1
-          },
-          "panels": []
-        },
-        {
-          "id": 17,
-          "type": "timeseries",
-          "title": "CPU (job별)",
-          "description": "job pod CPU 합",
-          "gridPos": {
-            "x": 0,
-            "y": 30,
-            "w": 8,
-            "h": 8
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "sum by (app) (label_replace(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"(${job:pipe})-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m]), \"app\", \"$1\", \"pod\", \"(.*?)-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\"))",
-              "legendFormat": "{{app}}"
+              "expr": "label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
             }
           ],
           "fieldConfig": {
@@ -1887,14 +1891,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -1902,14 +1906,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -1917,59 +1921,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -1993,14 +1952,14 @@ data:
           }
         },
         {
-          "id": 18,
+          "id": 24,
           "type": "timeseries",
-          "title": "메모리 (job별)",
-          "description": "job pod working set 합",
+          "title": "네트워크 송신",
+          "description": "dedup pod 송신 합",
           "gridPos": {
-            "x": 8,
-            "y": 30,
-            "w": 8,
+            "x": 12,
+            "y": 19,
+            "w": 6,
             "h": 8
           },
           "datasource": {
@@ -2010,149 +1969,8 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (app) (label_replace(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"(${job:pipe})-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}, \"app\", \"$1\", \"pod\", \"(.*?)-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\"))",
-              "legendFormat": "{{app}}"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "bytes",
-              "noValue": "-",
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 0,
-                "showPoints": "never"
-              }
-            },
-            "overrides": [
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-dedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "mean",
-                "max",
-                "lastNotNull"
-              ]
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          }
-        },
-        {
-          "id": 19,
-          "type": "timeseries",
-          "title": "네트워크 송신 (job별)",
-          "description": "job pod 송신 합",
-          "gridPos": {
-            "x": 16,
-            "y": 30,
-            "w": 8,
-            "h": 8
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "sum by (app) (label_replace(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"(${job:pipe})-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m]), \"app\", \"$1\", \"pod\", \"(.*?)-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\"))",
-              "legendFormat": "{{app}}"
+              "expr": "label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}\", interface=\"eth0\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
             }
           ],
           "fieldConfig": {
@@ -2169,14 +1987,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -2184,14 +2002,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -2199,59 +2017,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -2275,14 +2048,14 @@ data:
           }
         },
         {
-          "id": 20,
+          "id": 25,
           "type": "timeseries",
-          "title": "CPU (pod별)",
-          "description": "어느 pod가 일하는지. 파티션이 비면 그 task · subtask를 맡은 pod는 논다",
+          "title": "lag",
+          "description": "체크포인트 톱니가 정상. 계속 오르면 밀리는 것",
           "gridPos": {
-            "x": 0,
-            "y": 38,
-            "w": 12,
+            "x": 18,
+            "y": 19,
+            "w": 6,
             "h": 8
           },
           "datasource": {
@@ -2292,8 +2065,215 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"(${job:pipe})-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m]))",
-              "legendFormat": "{{pod}}"
+              "expr": "label_replace(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"kstreams-dedup\"}, 0)), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-dedup\"}, 0)), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-dedup-copart\"}, 0)), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never"
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 926,
+          "type": "row",
+          "title": "basis 단계 그래프",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 27,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 27,
+          "type": "timeseries",
+          "title": "입력 처리",
+          "description": "clean Spot + mark",
+          "gridPos": {
+            "x": 0,
+            "y": 28,
+            "w": 6,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"kstreams-basis-kdedup\", topic=~\".*\"}[1m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"flink-basis\", topic=~\".*\"}[1m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(kafka_consumergroup_current_offset{consumergroup=\"flink-basis-copart\", topic=~\".*\"}[1m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never"
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 28,
+          "type": "timeseries",
+          "title": "CPU",
+          "description": "basis pod CPU 합",
+          "gridPos": {
+            "x": 6,
+            "y": 28,
+            "w": 6,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
             }
           ],
           "fieldConfig": {
@@ -2311,14 +2291,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -2326,14 +2306,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -2341,59 +2321,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#00a888"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "flink-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]
@@ -2417,13 +2352,219 @@ data:
           }
         },
         {
-          "id": 21,
+          "id": 29,
           "type": "timeseries",
-          "title": "메모리 (pod별)",
-          "description": "pod별 working set",
+          "title": "네트워크 송신",
+          "description": "basis pod 송신 합",
           "gridPos": {
             "x": 12,
-            "y": 38,
+            "y": 28,
+            "w": 6,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", interface=\"eth0\"}[2m])), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m])), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 30,
+          "type": "timeseries",
+          "title": "lag",
+          "description": "체크포인트 톱니가 정상. 계속 오르면 밀리는 것",
+          "gridPos": {
+            "x": 18,
+            "y": 28,
+            "w": 6,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"kstreams-basis-kdedup\"}, 0)), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-basis\"}, 0)), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-basis-copart\"}, 0)), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never"
+              },
+              "decimals": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink 셔플"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 931,
+          "type": "row",
+          "title": "메모리",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 36,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 32,
+          "type": "timeseries",
+          "title": "메모리 · dedup",
+          "description": "dedup pod working set 합",
+          "gridPos": {
+            "x": 0,
+            "y": 37,
             "w": 12,
             "h": 8
           },
@@ -2434,8 +2575,8 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"(${job:pipe})-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"})",
-              "legendFormat": "{{pod}}"
+              "expr": "label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"kstreams-dedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-dedup-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-dedup-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
             }
           ],
           "fieldConfig": {
@@ -2452,14 +2593,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-dedup"
+                  "options": "Kafka Streams"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -2467,14 +2608,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-dedup"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -2482,14 +2623,80 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#e76624"
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 33,
+          "type": "timeseries",
+          "title": "메모리 · basis",
+          "description": "basis pod working set 합",
+          "gridPos": {
+            "x": 12,
+            "y": 37,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}), \"pipeline\", \"Kafka Streams\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink 셔플\", \"\", \"\") or label_replace(sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}), \"pipeline\", \"Flink co-partition\", \"\", \"\")",
+              "legendFormat": "{{pipeline}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
                     }
                   }
                 ]
@@ -2497,14 +2704,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "kstreams-basis"
+                  "options": "Flink 셔플"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#00a888"
+                      "fixedColor": "#E0752D"
                     }
                   }
                 ]
@@ -2512,29 +2719,14 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "flink-basis-kdedup"
+                  "options": "Flink co-partition"
                 },
                 "properties": [
                   {
                     "id": "color",
                     "value": {
                       "mode": "fixed",
-                      "fixedColor": "#d28e05"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "kstreams-basis-kdedup"
-                },
-                "properties": [
-                  {
-                    "id": "color",
-                    "value": {
-                      "mode": "fixed",
-                      "fixedColor": "#338ced"
+                      "fixedColor": "#B62AD9"
                     }
                   }
                 ]

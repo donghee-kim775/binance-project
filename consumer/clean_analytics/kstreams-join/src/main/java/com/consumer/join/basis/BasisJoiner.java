@@ -17,8 +17,6 @@ import com.consumer.join.basis.model.SpotMid;
  */
 class BasisJoiner implements ValueJoiner<MarkPrice, SpotMid, Basis> {
 
-    // [호출] Kafka Streams — markPrice가 오고, 같은 심볼의 Spot이 KTable에 있을 때마다 (join "basis")
-    // [스레드] kstreams-basis-<uuid>-StreamThread-N
     @Override
     public Basis apply(MarkPrice mark, SpotMid spot) {
         long spotAgeMs = mark.receiveTime() - spot.receiveTime();

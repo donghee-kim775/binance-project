@@ -23,8 +23,7 @@ kstreams-join/
     │   └── JsonSerde.java            # record ↔ JSON 바이트 (store · changelog · 출력)
     └── basis/
         ├── BasisTopology.java       # Spot → KTable, mark → join → 신선도 → sink
-        ├── SpotMidParser.java       # envelope → SpotMid (깨지면 null)
-        ├── MarkPriceParser.java     # envelope → MarkPrice (깨지면 null)
+        ├── BasisParser.java         # envelope → SpotMid · MarkPrice (깨지면 null)
         ├── BasisJoiner.java         # (MarkPrice, SpotMid) → Basis 계산
         └── model/  SpotMid, MarkPrice, Basis   (flink-join과 같은 record)
 ```
@@ -42,7 +41,26 @@ kstreams-join/
 | 시작 위치 | 커밋 없으면 LATEST | 커밋 없으면 latest (Kafka Streams 기본 earliest를 바꿈) |
 | 실행 | FlinkDeployment (JobManager 1 + TaskManager 3) | Deployment (pod 2) |
 
-- 출력 JSON 필드는 두 버전이 같다 (`symbol`, `event_time`, `mark_price`, `spot_mid`, `basis`, `funding_rate`, `receive_time`, `spot_receive_time`, `spot_age_ms`, `basis_time`). 그래서 `basis_time − receive_time`(collector → basis 지연)을 같은 방법으로 잴 수 있다.
+- basis 필드는 두 버전이 같다 (`symbol`, `event_time`, `mark_price`, `spot_mid`, `basis`, `funding_rate`, `receive_time`, `spot_receive_time`, `spot_age_ms`, `basis_time`). 그래서 `basis_time − receive_time`(collector → basis 지연)을 같은 방법으로 잴 수 있다.
+- Kafka Streams 버전은 그 뒤에 **통계 필드**를 더 붙인다 (`BasisStatsProcessor`, Flink 버전에는 없다). 아래 "과열 판정" 참고.
+
+## 과열 판정 (`BasisStatsProcessor`)
+
+join 바로 뒤, 같은 topology · 같은 트랜잭션에서 심볼별로 계산한다 (규칙: `Insights/1.spot_futures_basis/1_1_plan.md` 3장, 전달 보장: `1_2_delivery_guarantee.md`).
+
+| 출력 필드 | 뜻 |
+| --- | --- |
+| `bps` | basis ÷ spot_mid × 10,000 |
+| `mean_bps`, `std_bps` | 이번 값을 넣기 **전**의 최근 평균 · 표준편차 (시간 가중 EMA, 시간 상수 5분. 처음 약 5분은 단순 누적) |
+| `z` | (bps − mean_bps) / std_bps. warmup이면 0 |
+| `zBreachStreak` | \|z\| > 2가 연속된 횟수 |
+| `status` | `warmup`(표본 60건 미만) · `normal` · `warning`(연속 1~2) · `alert`(연속 3 이상) |
+| `alert_started` | 연속이 정확히 3이 된 한 건만 `true` (과열 알림 1회) |
+
+- 심볼별 state(평균 · 분산 · 표본 수 · 연속 횟수 · 마지막 event_time)는 store `basis-stats`에 두고 changelog로 복원한다.
+- **exactly-once가 필요한 이유:** 같은 basis가 두 번 누적되면 평균 · 분산이 틀어지고 연속 횟수가 늘어 거짓 알림이 난다. 앱이 `exactly_once_v2`라 재시작해도 한 번만 반영된다.
+- `event_time`이 이미 반영한 값 이하이면 버린다 (수집기 재연결로 같은 markPrice가 다시 오는 경우의 가드).
+- 규칙 값은 `BasisStatsProcessor.RULE` 상수에 있다 (main에서 넘기지 않는다).
 - **시각 맞추기:** Kafka Streams는 한 task 안의 두 입력 파티션 중 timestamp가 작은 레코드를 먼저 처리한다. 밀린 데이터를 따라잡을 때도 Spot과 mark의 순서가 비교적 맞는다. Flink 버전은 이 정렬이 없어 시작 위치를 LATEST로 두었다.
 
 ## 실행

@@ -61,7 +61,6 @@ kubectl logs -n binance-processing deploy/flink-dedup -f # JobManager 로그
 - jar는 `./gradlew shadowJar`로 만든다 (`build/libs/flink-app.jar`). Flink 본체(`flink-streaming-java`, `flink-connector-base`)는 Flink 이미지에 있어 `compileOnly`로 두고, Kafka 커넥터와 Jackson만 jar에 넣는다.
 - 코드를 고친 뒤에는 이미지 태그를 올려(예: `0.0.3`) 빌드 · push하고 `deploy/dedup.yaml`의 `image`를 바꿔 apply한다. 태그가 같으면 Operator가 바뀐 것을 모른다.
 - Kafka에는 클러스터 안 주소(`binance-cluster-kafka-bootstrap.binancekafka.svc:9092`)로 붙는다.
-- [flink-test](../../flink-test/)의 Deployment와 **같이 띄우지 않는다.** 둘 다 `binance.clean.spot.crypto.bookticker`에 써서 clean에 중복이 생긴다.
 
 ### 실행 환경
 

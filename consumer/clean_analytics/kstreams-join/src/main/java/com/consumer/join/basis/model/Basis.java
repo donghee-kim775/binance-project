@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * binance.analytics.crypto.basis에 쓰는 메시지 한 건 (JSON으로 바꿔 보낸다).
  *
  * 가격은 문자열로 쓴다. Binance 원본과 같은 방식이고, 읽는 쪽이 double로 받아 자릿수를 잃지 않게 한다.
- * z_score, alert는 이 job에서 계산하지 않는다 (basis 출력 위에서 따로 계산).
+ * BasisJoiner가 만드는 join 결과다. 출력 토픽에는 BasisStatsProcessor가 통계 필드를 붙인 BasisSignal로 나간다.
  * flink-join의 Basis와 필드가 같다. 두 버전의 출력을 같은 방법으로 비교하기 위해서다.
  */
 public record Basis(

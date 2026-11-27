@@ -31,9 +31,6 @@ public class BasisApp {
     static final String MARK_TOPIC = "binance.raw.usdm.crypto.markprice";
     static final String BASIS_TOPIC = "binance.analytics.crypto.basis";
 
-    // 이보다 오래된 Spot과는 계산하지 않는다 (Spot 연결이 끊겨 table에 옛 값이 남은 경우)
-    public static final Duration MAX_SPOT_AGE = Duration.ofSeconds(2);
-
     public static void main(String[] args) throws Exception {
     // 0. prepare prop
         Properties kafkaProperties = KafkaConfig.create(); // [다음] config/KafkaConfig.create
@@ -50,8 +47,7 @@ public class BasisApp {
         Topology topology = BasisTopology.build(
                 spotTopic,          // 입력 1 : 최신값만 들고 있을 쪽 (KTable)
                 MARK_TOPIC,         // 입력 2 : 올 때마다 basis를 낼 쪽 (KStream)
-                basisTopic,         // 출력
-                MAX_SPOT_AGE);      // 신선도 기준
+                basisTopic);        // 출력
         log.info("[basis] spot={} output={}\n{}", spotTopic, basisTopic, topology.describe());
 
     // 3. KafkaStreams 생성 (topology + 설정을 묶기만 한다. 아직 Kafka에 붙지 않음)
