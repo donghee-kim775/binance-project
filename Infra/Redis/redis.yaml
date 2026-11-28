@@ -1,0 +1,86 @@
+# Redis 단일 노드. 서빙 계층의 최신값 캐시 + Pub/Sub (servingapp/plan.md). 설치 · 설정 이유는 README.md
+#   kubectl apply -f Infra/Redis/redis.yaml
+#
+# 클러스터 안 주소: redis.binance-storage.svc:6379 (비밀번호 없음, ClusterIP라 클러스터 밖에서는 닿지 않는다)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: binance-storage
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: binance-storage
+data:
+  redis.conf: |
+    # 캐시 용도라 디스크에 쓰지 않는다. pod가 다시 뜨면 비어서 시작하고, Flink sink가 다음 basis(1초 안)로 다시 채운다
+    save ""
+    appendonly no
+    # 메모리 상한. 심볼마다 hash 하나라 수 MB면 충분하다. 넘치면 쓰기를 거절한다 (최신값이 조용히 지워지는 것보다 낫다)
+    maxmemory 128mb
+    maxmemory-policy noeviction
+    # 클러스터 안에서만 열린다 (Service ClusterIP). 비밀번호 대신 네트워크로 막는다
+    protected-mode no
+    bind 0.0.0.0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: binance-storage
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: binance-storage
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate   # 데이터가 없어서 두 개가 잠깐 겹칠 이유가 없다
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999   # 이미지의 redis 사용자
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          args: ["redis-server", "/etc/redis/redis.conf"]
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 192Mi   # maxmemory 128mb + 버퍼
+          volumeMounts:
+            - name: config
+              mountPath: /etc/redis
+      volumes:
+        - name: config
+          configMap:
+            name: redis-config

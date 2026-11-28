@@ -1,0 +1,79 @@
+# Insight 1 basis 대시보드 (Gateway + 화면). 설명은 ../README.md
+#   docker build -t kimdonghee125/basis-dashboard:0.0.2 .     (Insights/1.spot_futures_basis/1_3_dashboard/ 에서)
+#   docker push kimdonghee125/basis-dashboard:0.0.2
+#   kubectl apply -f deploy/dashboard.yaml
+#
+# ClickHouse 읽기 전용 사용자(dashboard)의 비밀번호는 이 파일에 두지 않는다. README "설치" 순서로 Secret을 먼저 만든다:
+#   kubectl create secret generic clickhouse-dashboard -n binance-serving --from-literal=password='<비밀번호>'
+#
+# 브라우저 주소: http://203.250.35.217:30808 (dclabnode1 외부 IP. 192.168.12.x는 내부망이라 PC에서 안 닿는다)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: binance-serving
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: basis-dashboard
+  namespace: binance-serving
+spec:
+  type: NodePort
+  selector:
+    app: basis-dashboard
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30808   # kafka-ui 30080 · ClickHouse 30123 · 30900과 겹치지 않게
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: basis-dashboard
+  namespace: binance-serving
+  labels:
+    app: basis-dashboard
+spec:
+  # 상태가 없다 (최신값은 Redis, 이력은 ClickHouse). 늘려도 pod마다 Redis 채널을 따로 구독해 같은 값을 받는다
+  replicas: 1
+  selector:
+    matchLabels:
+      app: basis-dashboard
+  template:
+    metadata:
+      labels:
+        app: basis-dashboard
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: dashboard
+          image: kimdonghee125/basis-dashboard:0.0.2
+          imagePullPolicy: IfNotPresent   # Docker Hub(kimdonghee125)에서 받는다. 태그를 올려서 배포한다
+          ports:
+            - containerPort: 8080
+          env:
+            - name: REDIS_URL
+              value: redis://redis.binance-storage.svc:6379/0
+            - name: CLICKHOUSE_URL
+              value: http://clickhouse.binance-storage.svc:8123
+            - name: CLICKHOUSE_USER
+              value: dashboard   # SELECT만 되는 사용자 (README "ClickHouse 사용자")
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-dashboard
+                  key: password
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              memory: 256Mi

@@ -1,0 +1,81 @@
+# Flink serving sink — analytics basis → Redis 최신값 + Pub/Sub (consumer/sink/insight_1/flink-redis/README.md)
+# Flink Operator가 이 리소스를 보고 JobManager · TaskManager pod를 띄우고 job을 제출한다.
+#   docker build -t kimdonghee125/flink-redis:0.0.1 .          (consumer/sink/insight_1/flink-redis/ 에서)
+#   docker push kimdonghee125/flink-redis:0.0.1
+#   kubectl apply -f Infra/Redis/redis.yaml                   (저장소 루트에서, Redis가 먼저 있어야 한다)
+#   kubectl apply -f deploy/redis-sink.yaml
+#
+# MinIO 계정 Secret(minio-auth)은 다른 Flink job과 같이 쓴다 (binance-processing에 이미 있다).
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-basis-redis
+  namespace: binance-processing
+spec:
+  image: kimdonghee125/flink-redis:0.0.1
+  imagePullPolicy: IfNotPresent   # Docker Hub(kimdonghee125)에서 받는다. 태그를 올려서 배포한다
+  flinkVersion: v2_2
+  serviceAccount: flink
+
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "1"          # 병렬도 1 → TaskManager 1개
+    taskmanager.memory.managed.fraction: "0.1"  # keyed state가 없다
+
+    # 체크포인트: 끝날 때 Kafka offset을 커밋한다. Redis 쓰기는 write에서 이미 끝나 있어 at-least-once
+    #  - AT_LEAST_ONCE: 외부 sink라 정확히 한 번은 어차피 안 된다. barrier 정렬을 기다리지 않아 가볍다
+    execution.checkpointing.interval: 10s
+    execution.checkpointing.mode: AT_LEAST_ONCE
+    execution.checkpointing.timeout: 1min
+    execution.checkpointing.min-pause: 5s
+    execution.checkpointing.max-concurrent-checkpoints: "1"
+    execution.checkpointing.tolerable-failed-checkpoints: "3"
+    execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+
+    # 체크포인트 저장소. 읽는 토픽이 analytics라 계층은 analytics (CLAUDE.md MinIO 경로 규칙)
+    execution.checkpointing.dir: s3://binance/flink/analytics/flink-basis-redis/checkpoints
+    execution.checkpointing.savepoint-dir: s3://binance/flink/analytics/flink-basis-redis/savepoints
+    s3.endpoint: http://minio.binance-storage.svc:9000
+    s3.path.style.access: "true"
+
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://binance/flink/analytics/flink-basis-redis/ha
+
+  jobManager:
+    replicas: 1
+    resource:
+      memory: "1024m"
+      cpu: 0.3
+  taskManager:
+    resource:
+      memory: "1024m"
+      cpu: 0.3
+
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: binance-cluster-kafka-bootstrap.binancekafka.svc:9092
+            - name: REDIS_HOST
+              value: redis.binance-storage.svc
+            - name: REDIS_PORT
+              value: "6379"
+            - name: ENABLE_BUILT_IN_PLUGINS
+              value: flink-s3-fs-hadoop-2.2.1.jar
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-password
+
+  job:
+    jarURI: local:///opt/flink/usrlib/flink-redis.jar   # 이미지 안의 경로 (Dockerfile)
+    entryClass: com.consumer.redis.basis.BasisRedisJob
+    parallelism: 1
+    upgradeMode: savepoint   # 재배포 때 savepoint로 Kafka offset을 이어받음 (uid 고정)

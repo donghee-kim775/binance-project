@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Basis 대시보드</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>Insight 1 · Spot–Futures Basis</h1>
+      <p class="sub">basis = USD-M 무기한 mark price − Spot mid · markPrice 1건(초당)마다 갱신 · Z-score = 5분 EWMA · |Z| &gt; 2가 3초 연속이면 과열 알림</p>
+    </div>
+    <div id="conn" class="badge badge-off">연결 중…</div>
+  </header>
+
+  <!-- KPI -->
+  <section class="kpis">
+    <div class="kpi"><div class="kpi-title">감시 심볼</div><div class="kpi-value" id="kpi-symbols">-</div><div class="kpi-sub">Spot + USD-M 둘 다 있는 코인</div></div>
+    <div class="kpi"><div class="kpi-title">과열 알림</div><div class="kpi-value red" id="kpi-alert">-</div><div class="kpi-sub">|Z|&gt;2 · 3초 연속</div></div>
+    <div class="kpi"><div class="kpi-title">주의</div><div class="kpi-value amber" id="kpi-warning">-</div><div class="kpi-sub">|Z|&gt;2 · 연속 3초 미만</div></div>
+    <div class="kpi"><div class="kpi-title">최대 |Z|</div><div class="kpi-value" id="kpi-maxz">-</div><div class="kpi-sub" id="kpi-maxz-symbol">-</div></div>
+    <div class="kpi"><div class="kpi-title">평균 basis</div><div class="kpi-value" id="kpi-avgbps">-</div><div class="kpi-sub">음수 = 선물이 현물보다 쌈</div></div>
+    <div class="kpi"><div class="kpi-title">지연 p50</div><div class="kpi-value" id="kpi-latency">-</div><div class="kpi-sub" id="kpi-latency-sub">collector → basis</div></div>
+  </section>
+
+  <!-- 지금 상태 표 + 읽는 법 -->
+  <section class="middle">
+    <div class="card table-card">
+      <h2>지금 상태 (|Z| 큰 순)</h2>
+      <table>
+        <thead>
+          <tr><th>심볼</th><th class="num">basis</th><th class="num">bps</th><th class="num">Z</th><th class="num">펀딩(8h)</th><th>상태</th></tr>
+        </thead>
+        <tbody id="status-rows"><tr><td colspan="6" class="muted">데이터를 기다리는 중…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="card legend-card">
+      <h2>읽는 법</h2>
+      <dl>
+        <dt>basis</dt><dd>선물 mark − 현물 mid ($). 음수면 선물이 현물보다 쌈</dd>
+        <dt>bps</dt><dd>basis ÷ 현물 mid × 10,000 (1 bps = 0.01%)</dd>
+        <dt>Z</dt><dd>지금 bps가 최근 5분 평균에서 표준편차 몇 개만큼 벗어났나</dd>
+        <dt>펀딩(8h)</dt><dd>8시간마다 정산. + 롱이 숏에 지불 · − 숏이 롱에 지불</dd>
+        <dt>상태</dt><dd>✓ |Z| ≤ 2 · ● |Z| &gt; 2 (3초 미만) · ▲ 3초 연속 → 알림 · ◌ 준비 중(1분) · ? 데이터 확인</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- 심볼별 30분 그래프 -->
+  <section>
+    <div class="charts-head">
+      <h2>심볼별 basis (bps, 최근 30분) · y축은 패널마다 따로</h2>
+      <div class="chart-legend">
+        <span><i class="sw band"></i>평균 ± 2σ (5분)</span>
+        <span><i class="sw dash"></i>5분 평균</span>
+        <span><i class="sw line"></i>basis (bps)</span>
+        <span><i class="sw dot"></i>과열 (3초 연속)</span>
+      </div>
+    </div>
+    <div class="charts" id="charts"></div>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

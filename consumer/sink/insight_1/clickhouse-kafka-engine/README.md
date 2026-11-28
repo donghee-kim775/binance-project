@@ -11,3 +11,5 @@
 | 대시보드 | 심볼별 basis 30분 그래프 · 5분 평균 · ±2σ 밴드 · 과열 표시 · 지연 p50 · 알림 이력(`alert_started = 1`) |
 
 설계: [1_2_delivery_guarantee.md 4.3](../../../../Insights/1.spot_futures_basis/1_2_delivery_guarantee.md). ClickHouse 설치는 [Infra/](../../../../Infra/).
+
+**DDL:** [database/clickhouse/table/basis.sql](../../../../database/clickhouse/table/basis.sql) (2026-11-28 클러스터에 적용). 컨슈머 그룹은 `clickhouse-basis`, 테이블은 `binance.basis` · `basis_queue` · `basis_mv`다. 출력 JSON의 `zContWarnCnt`는 컬럼 `z_cont_warn_cnt`로, 지연은 `latency_ms`(MATERIALIZED)로 둔다.
