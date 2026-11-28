@@ -1,8 +1,8 @@
 # Kafka Streams basis — clean Spot bookTicker + raw USD-M markPrice → analytics basis (consumer/clean_analytics/kstreams-join/README.md)
 # Flink basis(consumer/clean_analytics/flink-join, FlinkDeployment flink-basis)와 같은 일을 한다. **둘을 같은 출력 토픽에 쓰게 띄우지 않는다.**
 # 나란히 비교할 때는 compare/ overlay로 띄운다 (출력 토픽에 .kstreams 접미어).
-#   docker build -t kimdonghee125/kstreams-join:0.0.2 .          (consumer/clean_analytics/kstreams-join/ 에서)
-#   docker push kimdonghee125/kstreams-join:0.0.2
+#   docker build -t kimdonghee125/kstreams-join:0.0.3 .          (consumer/clean_analytics/kstreams-join/ 에서)
+#   docker push kimdonghee125/kstreams-join:0.0.3
 #   kubectl apply -k compare      (비교 실행)   /   kubectl apply -f deploy/basis.yaml   (단독 실행)
 apiVersion: apps/v1
 kind: Deployment
@@ -32,7 +32,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: basis
-          image: kimdonghee125/kstreams-join:0.0.2
+          image: kimdonghee125/kstreams-join:0.0.3
           imagePullPolicy: IfNotPresent   # Docker Hub(kimdonghee125)에서 받는다. 태그를 올려서 배포한다
           env:
             # = consumer group 이름 · changelog 토픽 앞부분. 바꾸면 offset과 state를 처음부터 다시 쌓는다

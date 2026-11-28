@@ -1,5 +1,7 @@
 package com.consumer.join.basis;
 
+import java.math.BigDecimal;
+
 import org.apache.kafka.streams.kstream.ValueJoiner;
 
 import com.consumer.join.basis.model.Basis;
@@ -19,14 +21,15 @@ class BasisJoiner implements ValueJoiner<MarkPrice, SpotMid, Basis> {
 
     @Override
     public Basis apply(MarkPrice mark, SpotMid spot) {
-        long spotAgeMs = mark.receiveTime() - spot.receiveTime();
+        long spotAgeMs = mark.receiveTime() - spot.receiveTime();          // 362 ms
+        BigDecimal basisPrice = mark.markPrice().subtract(spot.mid());     // 93.13500000 = mark − spot mid (BigDecimal이라 - 대신 subtract)
 
         Basis basis = new Basis(
                 mark.symbol(),                                              // symbol
                 mark.eventTime(),                                           // event_time
                 mark.markPrice().toPlainString(),                           // mark_price
                 spot.mid().toPlainString(),                                 // spot_mid
-                mark.markPrice().subtract(spot.mid()).toPlainString(),      // basis
+                basisPrice.toPlainString(),                                 // basis
                 mark.fundingRate(),                                         // funding_rate
                 mark.receiveTime(),                                         // receive_time
                 spot.receiveTime(),                                         // spot_receive_time

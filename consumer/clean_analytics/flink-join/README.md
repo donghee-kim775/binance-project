@@ -3,12 +3,14 @@
 두 개 이상의 토픽을 심볼로 묶어 계산하는 Flink join job들이다. dedup([../flink-dedup/](../../raw_clean/flink-dedup/))과는 jar, 이미지, 배포를 따로 둔다. 지금은 **basis job**(Insight 1) 하나다. 설계 이유는 [../flink-design.md](../../flink-design.md) 5장에 있다. 같은 일을 하는 Kafka Streams 버전은 [../kstreams-join/](../kstreams-join/), 둘의 비교 대시보드는 [binance-basis-join](../../../Infra/Monitoring/dashboards/binance-basis-join/README.md)이다.
 
 ```text
-binance.clean.spot.crypto.bookticker ──> SpotMidParser ───keyBy(symbol)──┐
-  (dedup 끝난 Spot 호가)                  (b + a) / 2                    │
-                                                                         ├─connect─> BasisFunction ──> binance.analytics.crypto.basis
-binance.raw.usdm.crypto.markprice    ──> MarkPriceParser ─keyBy(symbol)──┘           심볼별 최신 Spot 하나를 state에 둠
-  (Active-Standby라 중복 없음, raw 그대로)  p, r, E                                  markPrice가 오면 basis = p − mid
+binance.clean.spot.crypto.bookticker ──> parse.spot ──keyBy(symbol)──┐
+  (dedup 끝난 Spot 호가)                  (b + a) / 2                │
+                                                                     ├─connect─> basis ──> basis.stats ──> binance.analytics.crypto.basis
+binance.raw.usdm.crypto.markprice    ──> parse.mark ──keyBy(symbol)──┘  최신 Spot     bps · 평균 · 표준편차 · Z
+  (Active-Standby라 중복 없음, raw 그대로)  p, r, E                     state         연속 횟수 · status (state basis-stats)
 ```
+
+kstreams-join과 노드 이름 · 클래스 이름(`BasisParser`, `Basis`, `BasisSignal`, `BasisStatsState`, `BasisStatsRule`) · 출력 JSON 필드가 같다.
 
 ## 구조
 
@@ -21,11 +23,13 @@ flink-join/
     │   ├── KafkaIO.java              # KafkaSource / KafkaSink. 커밋된 offset이 없으면 LATEST부터
     │   └── BinanceEventEnvelope.java # 수집 앱 envelope와 같은 필드 (record)
     └── basis/
-        ├── BasisJob.java             # main(): 두 source → parse → keyBy → connect → sink
-        ├── SpotMidParser.java        # envelope → SpotMid
-        ├── MarkPriceParser.java      # envelope → MarkPrice
-        ├── BasisFunction.java        # KeyedCoProcessFunction. 최신 Spot state + 신선도 검사
-        └── model/  SpotMid, MarkPrice, Basis
+        ├── BasisJob.java             # main(): 두 source → parse → keyBy → connect → stats → sink
+        ├── BasisParser.java          # envelope → SpotMid · MarkPrice (깨지면 null). kstreams-join과 같다
+        ├── ParseFunction.java        # BasisParser를 감싼 연산자. null이면 내보내지 않는다 (= 버림)
+        ├── BasisFunction.java        # KeyedCoProcessFunction. 최신 Spot state + 신선도 검사 → Basis
+        ├── BasisStatsFunction.java   # KeyedProcessFunction. 심볼별 EWMA 평균 · 분산 → Z · status (kstreams BasisStatsProcessor와 같다)
+        ├── BasisStatsRule.java       # 판정 규칙 값 묶음 (5분 · |Z| 2.0 · 3회 · 60건)
+        └── model/  SpotMid, MarkPrice, Basis, BasisSignal, BasisStatsState
 ```
 
 ## 동작
@@ -34,11 +38,11 @@ flink-join/
 | --- | --- |
 | 출력 빈도 | markPrice 1건당 1건 (심볼마다 초당 1건). Spot이 오면 state만 바꾸고 출력하지 않는다 |
 | Spot 신선도 | `abs(mark.receive_time − spot.receive_time) > 2초`이면 버린다. 둘 다 collector가 찍은 노드 시계다 (Spot bookTicker에는 `E`가 없다) |
-| 버린 건수 | Flink metric `basisNoSpot`(그 심볼의 Spot을 아직 못 받음), `basisStaleSpot`(Spot이 2초 넘게 오래됨) |
+| 버린 건수 | Flink metric `basisNoSpot`(그 심볼의 Spot을 아직 못 받음), `basisStaleSpot`(Spot이 2초 넘게 오래됨), `basisStatsOldEvent`(이미 반영한 event_time 이하 → 통계에 넣지 않음) |
 | 시작 위치 | 커밋된 offset부터. 처음 배포라 커밋이 없으면 **LATEST**. 밀린 데이터를 토픽마다 다른 속도로 따라잡으면 시각이 어긋난 짝이 생긴다 |
-| 병렬도 | source · parse 3 (파티션 수), basis · sink 2 → TaskManager 3개 (슬롯 1) |
+| 병렬도 | source · parse 3 (파티션 수), basis · basis.stats · sink 2 → TaskManager 3개 (슬롯 1). basis → basis.stats는 같은 키라 셔플 없이 잇는다 (`reinterpretAsKeyedStream`) |
 | 체크포인트 | `s3://binance/flink/analytics/flink-basis/` (10초, `upgradeMode: savepoint`) |
-| 계산하지 않는 것 | z-score, alert. basis 출력 위에서 따로 계산한다 |
+| 통계 · 판정 | basis.stats가 붙인다. 규칙과 출력 필드는 [kstreams-join README](../kstreams-join/README.md)와 같다 (warmup · check_data · normal · warning · alert) |
 
 출력 메시지 (`binance.analytics.crypto.basis`, key = 심볼):
 
@@ -53,7 +57,14 @@ flink-join/
   "receive_time": 1788098181012,
   "spot_receive_time": 1788098180650,
   "spot_age_ms": 362,
-  "basis_time": 1788098181150
+  "basis_time": 1788098181150,
+  "bps": 11.8251,
+  "mean_bps": 10.9312,
+  "std_bps": 0.4923,
+  "z": 1.8157,
+  "zContWarnCnt": 0,
+  "status": "normal",
+  "alert_started": false
 }
 ```
 

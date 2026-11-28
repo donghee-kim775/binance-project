@@ -46,6 +46,7 @@ Grafana pod에는 sidecar(`grafana-sc-dashboard`)가 있다. sidecar는 모든 n
 
 | 폴더 | 대시보드 | 지표 출처 |
 | --- | --- | --- |
+| [binance-kstreams-pipeline/](dashboards/binance-kstreams-pipeline/) | `Binance / Kafka Streams 파이프라인 (raw → clean → analytics)`: 단계별 유입 · 처리 속도, **basis 통과율**(analytics ÷ markPrice), lag 시간, 파티션별 lag, pod CPU · 메모리 · 재시작. 테스트 기준 대시보드 | Kafka Exporter, cAdvisor, kube-state-metrics |
 | [binance-raw-ingest/](dashboards/binance-raw-ingest/) | `Binance / raw 유입 vs Flink 처리`: 유입 · 처리 속도, consumer lag (records · 초), lag 증가 속도, backpressure. 전체와 파티션별 | Kafka Exporter |
 | [binance-basis-join/](dashboards/binance-basis-join/) | `Binance / basis join: Flink(keyBy · co-partition) vs Kafka Streams`: basis 경로들의 basis 출력 속도, consumer lag, 처리 속도, pod CPU · 메모리 · 네트워크 | Kafka Exporter, cAdvisor |
 | [binance-processing-jobs/](dashboards/binance-processing-jobs/) | `Binance / 처리 파이프라인 비교 (dedup → basis)`: Kafka Streams · Flink 셔플 · Flink co-partition 세 파이프라인의 처리량, lag, CPU · 메모리 · 네트워크 (파이프라인 합, 단계별) | Kafka Exporter, cAdvisor, kube-state-metrics |

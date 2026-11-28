@@ -141,12 +141,10 @@ public final class BasisTopology {
                 Named.as("fresh.basis"));
 
         // 5. 통계: bps · 최근 평균 · 표준편차 · Z · 연속 횟수 · 상태 · 알림 (Insight 1 과열 판정)
-        //    a. 
-        //    b. 
         KStream<String, BasisSignal> signal = fresh.process(
-                () -> new BasisStatsProcessor(BASIS_STATS_STORE),              // = ProcessorSupplier.get(). 판정 규칙은 BasisStatsProcessor.RULE  [다음] BasisStatsProcessor.process
+                () -> new BasisStatsProcessor(BASIS_STATS_STORE),
                 Named.as("basis.stats"),
-                BASIS_STATS_STORE);                                            // 이 단계가 쓰는 store
+                BASIS_STATS_STORE);
 
         // 6. analytics 토픽에 쓴다 (key = symbol, value = Basis 필드 + 통계 필드 JSON)
         signal.to(

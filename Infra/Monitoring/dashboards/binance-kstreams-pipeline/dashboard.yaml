@@ -1,0 +1,1173 @@
+# Grafana 대시보드: Kafka Streams 파이프라인 raw → clean → analytics (kstreams-dedup → kstreams-basis)
+# - 라벨 grafana_dashboard: "1" 이면 Grafana sidecar가 자동으로 불러온다 (Infra/Monitoring/README.md)
+# - 지표 출처: Kafka Exporter(토픽 끝 offset · consumer group 커밋 offset · lag), cAdvisor, kube-state-metrics
+# - clean · analytics는 Kafka Streams가 exactly-once(트랜잭션)로 써서 offset 사이에 commit marker가 낀다 → 초당 건수는 근사
+# - 패널별 계산 방법: 같은 폴더의 README.md
+# - 생성: 패널이 많아 손으로 쓰지 않고 스크립트로 만든다 (README "고치는 법")
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-binance-kstreams-pipeline
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  binance-kstreams-pipeline.json: |
+    {
+      "uid": "binance-kstreams-pipeline",
+      "title": "Binance / Kafka Streams 파이프라인 (raw → clean → analytics)",
+      "tags": [
+        "binance",
+        "kstreams"
+      ],
+      "timezone": "browser",
+      "refresh": "10s",
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "schemaVersion": 39,
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "데이터 소스",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {}
+          },
+          {
+            "name": "dedup_group",
+            "label": "dedup group",
+            "type": "custom",
+            "query": "kstreams-dedup",
+            "current": {
+              "text": "kstreams-dedup",
+              "value": "kstreams-dedup"
+            }
+          },
+          {
+            "name": "basis_group",
+            "label": "basis group",
+            "type": "custom",
+            "query": "kstreams-basis",
+            "current": {
+              "text": "kstreams-basis",
+              "value": "kstreams-basis"
+            }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 900,
+          "type": "row",
+          "title": "현상황 — raw → clean → analytics가 끝까지 흐르나?",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "raw 유입",
+          "description": "수집 앱이 raw spot bookTicker + raw USD-M markPrice에 쓰는 초당 건수. 0이면 수집이 끊긴 것",
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 3,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.spot.crypto.bookticker\"}[1m])) + sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.usdm.crypto.markprice\"}[1m]))",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 0,
+              "noValue": "-",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "dedup 처리",
+          "description": "kstreams-dedup이 raw spot bookTicker를 커밋한 초당 건수. ≈ raw spot 유입이면 정상",
+          "gridPos": {
+            "x": 3,
+            "y": 1,
+            "w": 3,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_consumergroup_current_offset{consumergroup=\"$dedup_group\", topic=\"binance.raw.spot.crypto.bookticker\"}[1m]))",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 0,
+              "noValue": "-",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "clean 유입",
+          "description": "dedup이 clean에 쓴 초당 offset 증가. 수집 pod 2개가 같은 이벤트를 보내서 raw spot의 약 절반이 정상 (트랜잭션 marker 포함 근사)",
+          "gridPos": {
+            "x": 6,
+            "y": 1,
+            "w": 3,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker\"}[1m]))",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 0,
+              "noValue": "-",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "basis 처리",
+          "description": "kstreams-basis가 markPrice를 커밋한 초당 건수 (심볼 수 × 1/s)",
+          "gridPos": {
+            "x": 9,
+            "y": 1,
+            "w": 3,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_consumergroup_current_offset{consumergroup=\"$basis_group\", topic=\"binance.raw.usdm.crypto.markprice\"}[1m]))",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 1,
+              "noValue": "-",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 0.5
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "analytics 출력",
+          "description": "basis가 analytics에 쓴 초당 offset 증가 (트랜잭션 marker 포함 근사). 0이면 basis가 전부 버려지는 중",
+          "gridPos": {
+            "x": 12,
+            "y": 1,
+            "w": 3,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis\"}[1m]))",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 1,
+              "noValue": "-",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 0.5
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "basis 통과율",
+          "description": "analytics 출력 ÷ markPrice 유입 (5분). markPrice 1건 = basis 1건이라 1 안팎이 정상 (marker 때문에 조금 클 수 있다). 0 근처면 Spot이 늦어 신선도 2초 필터에서 버려지는 중 → dedup lag를 본다",
+          "gridPos": {
+            "x": 15,
+            "y": 1,
+            "w": 3,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis\"}[5m])) / (sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.usdm.crypto.markprice\"}[5m])) > 0)",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "decimals": 0,
+              "noValue": "-",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 0.5
+                  },
+                  {
+                    "color": "green",
+                    "value": 0.9
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "dedup lag 시간",
+          "description": "dedup이 밀린 건수 ÷ raw spot 유입 속도(5분) = 몇 초치가 밀려 있나. Kafka Streams는 100ms마다 커밋해서 정상이면 1초 미만. 2초를 넘으면 clean Spot이 늦어 basis가 버려진다",
+          "gridPos": {
+            "x": 18,
+            "y": 1,
+            "w": 3,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$dedup_group\", topic=\"binance.raw.spot.crypto.bookticker\"}, 0)) / (sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.spot.crypto.bookticker\"}[5m])) > 0)",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 1,
+              "noValue": "-",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 2
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 8,
+          "type": "stat",
+          "title": "basis lag 시간",
+          "description": "basis가 clean · markPrice에서 밀린 건수 ÷ 두 토픽 유입 속도(5분)",
+          "gridPos": {
+            "x": 21,
+            "y": 1,
+            "w": 3,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "(sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$basis_group\", topic=\"binance.clean.spot.crypto.bookticker\"}, 0)) + sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$basis_group\", topic=\"binance.raw.usdm.crypto.markprice\"}, 0))) / ((sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker\"}[5m])) + sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.usdm.crypto.markprice\"}[5m]))) > 0)",
+              "legendFormat": ""
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 1,
+              "noValue": "-",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 2
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "background",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center"
+          }
+        },
+        {
+          "id": 906,
+          "type": "row",
+          "title": "단계별 처리량 — 들어온 양 vs 처리한 양 (점선 = 처리)",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 6,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "① raw spot → dedup",
+          "description": "두 선이 겹치면 dedup이 따라가는 중. 처리(점선)가 유입 아래로 계속 있으면 그 차이만큼 lag가 쌓인다",
+          "gridPos": {
+            "x": 0,
+            "y": 7,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.spot.crypto.bookticker\"}[1m]))",
+              "legendFormat": "raw spot 유입"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(rate(kafka_consumergroup_current_offset{consumergroup=\"$dedup_group\", topic=\"binance.raw.spot.crypto.bookticker\"}[1m]))",
+              "legendFormat": "dedup 처리"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "dedup 처리"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        8,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "② clean · markPrice → basis",
+          "description": "basis가 두 입력을 따라가나",
+          "gridPos": {
+            "x": 8,
+            "y": 7,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker\"}[1m]))",
+              "legendFormat": "clean 유입"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(rate(kafka_consumergroup_current_offset{consumergroup=\"$basis_group\", topic=\"binance.clean.spot.crypto.bookticker\"}[1m]))",
+              "legendFormat": "basis 처리 (clean)"
+            },
+            {
+              "refId": "C",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.usdm.crypto.markprice\"}[1m]))",
+              "legendFormat": "markPrice 유입"
+            },
+            {
+              "refId": "D",
+              "expr": "sum(rate(kafka_consumergroup_current_offset{consumergroup=\"$basis_group\", topic=\"binance.raw.usdm.crypto.markprice\"}[1m]))",
+              "legendFormat": "basis 처리 (markPrice)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "basis 처리.*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        8,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "③ markPrice → analytics",
+          "description": "markPrice 1건마다 basis 1건. analytics(점선)가 markPrice 아래로 떨어지면 신선도 필터에서 버려지는 중",
+          "gridPos": {
+            "x": 16,
+            "y": 7,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.usdm.crypto.markprice\"}[1m]))",
+              "legendFormat": "markPrice 유입"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis\"}[1m]))",
+              "legendFormat": "analytics 출력"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              },
+              "decimals": 1
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "analytics 출력"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        8,
+                        6
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 915,
+          "type": "row",
+          "title": "consumer lag — 어디가 밀리나",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 15,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "dedup lag (파티션별)",
+          "description": "raw spot 파티션마다 아직 커밋하지 않은 건수. 한 파티션만 오르면 그 파티션을 맡은 스레드가 못 따라가는 것 (키 = 심볼이라 파티션마다 양이 다르다)",
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (partition) (kafka_consumergroup_lag{consumergroup=\"$dedup_group\", topic=\"binance.raw.spot.crypto.bookticker\"} >= 0)",
+              "legendFormat": "파티션 {{partition}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "basis lag (토픽 · 파티션별)",
+          "description": "basis가 clean · markPrice에서 밀린 건수",
+          "gridPos": {
+            "x": 8,
+            "y": 16,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (topic, partition) (kafka_consumergroup_lag{consumergroup=\"$basis_group\"} >= 0)",
+              "legendFormat": "{{topic}} p{{partition}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "lag 시간",
+          "description": "밀린 건수 ÷ 유입 속도. 2초 선을 넘으면 basis 신선도 필터(2초)에 걸리기 시작한다",
+          "gridPos": {
+            "x": 16,
+            "y": 16,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$dedup_group\", topic=\"binance.raw.spot.crypto.bookticker\"}, 0)) / (sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.spot.crypto.bookticker\"}[5m])) > 0)",
+              "legendFormat": "dedup"
+            },
+            {
+              "refId": "B",
+              "expr": "(sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$basis_group\", topic=\"binance.clean.spot.crypto.bookticker\"}, 0)) + sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"$basis_group\", topic=\"binance.raw.usdm.crypto.markprice\"}, 0))) / ((sum(rate(kafka_topic_partition_current_offset{topic=\"binance.clean.spot.crypto.bookticker\"}[5m])) + sum(rate(kafka_topic_partition_current_offset{topic=\"binance.raw.usdm.crypto.markprice\"}[5m]))) > 0)",
+              "legendFormat": "basis"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 5,
+                "showPoints": "never",
+                "spanNulls": true,
+                "thresholdsStyle": {
+                  "mode": "line+area"
+                }
+              },
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "transparent",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 2
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 924,
+          "type": "row",
+          "title": "pod 자원 — 밀릴 때 원인",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 24,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "CPU (코어)",
+          "description": "pod별 CPU 사용량. limit이 없어서 throttling은 없다. 한 pod만 높으면 task가 그쪽에 몰린 것",
+          "gridPos": {
+            "x": 0,
+            "y": 25,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"kstreams-.*\", container!=\"\", container!=\"POD\"}[2m]))",
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              },
+              "decimals": 2
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "메모리 (working set)",
+          "description": "limit 512Mi에 가까워지면 OOMKilled 위험",
+          "gridPos": {
+            "x": 8,
+            "y": 25,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"kstreams-.*\", container!=\"\", container!=\"POD\"})",
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "재시작 (1시간)",
+          "description": "컨테이너가 다시 뜬 횟수. 0이 아니면 로그에서 원인을 본다 (예외로 StreamThread가 죽으면 앱이 exit 1)",
+          "gridPos": {
+            "x": 16,
+            "y": 25,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"binance-processing\", pod=~\"kstreams-.*\"}[1h]))",
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        }
+      ]
+    }

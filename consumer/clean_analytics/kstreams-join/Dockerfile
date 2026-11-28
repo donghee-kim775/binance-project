@@ -1,7 +1,7 @@
 # Kafka Streams join 앱 이미지. Flink와 달리 일반 JVM 프로세스 하나라 JRE 이미지면 된다.
 #
 # 빌드 (consumer/clean_analytics/kstreams-join/ 에서):
-#   docker build -t kimdonghee125/kstreams-join:0.0.2 .
+#   docker build -t kimdonghee125/kstreams-join:0.0.3 .
 
 # ── 1. build ─────────────────────────────────────────────
 FROM eclipse-temurin:17-jdk AS build

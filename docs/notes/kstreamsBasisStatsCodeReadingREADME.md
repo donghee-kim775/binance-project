@@ -77,9 +77,9 @@ Python으로 치면 `state["BTCUSDT"] = {...}` 한 칸이다. 이 record가 stor
 
 | 필드 | 왜 필요한가 |
 | --- | --- |
-| `meanBps`, `varBps` | Z 계산 (평균, 분산) |
+| `averageBps`, `varBps` | Z 계산 (평균, 분산) |
 | `bpsSampleCount` | warmup 판정 |
-| `zBreachStreak` | 3회 연속 판정 |
+| `zContWarnCnt` | 3회 연속 판정 |
 | `lastEventTime` | 중복 · 역순 가드 (같은 markPrice가 다시 오면 버림) |
 
 - pod가 죽으면 다른 pod가 changelog 토픽(`<application.id>-basis-stats-changelog`)을 읽어 이 값을 되살린다.
@@ -100,9 +100,9 @@ statsStore.get(symbol)              없으면 BasisStatsState.empty()
 2. bps     = basis × 10000 ÷ spot_mid
 3. warm    = bpsSampleCount ≥ minSamples && 표준편차 > 0
    z       = warm ? (bps − 이전 평균) / 이전 표준편차 : 0
-4. zBreachStreak = warm && |z| > 2 ? 이전 + 1 : 0
-   status      = warmup / alert(≥3) / warning(>0) / normal
-   alertStarted = zBreachStreak == 3          ← 과열이 시작된 그 한 건만
+4. zContWarnCnt = warm && |z| > 2 ? 이전 + 1 : 0
+   status      = warmup / check_data(std 0) / alert(≥3) / warning(>0) / normal
+   alertStarted = zContWarnCnt == 3          ← 과열이 시작된 그 한 건만
 5. updated(...) → statsStore.put            평균 · 분산 갱신
    context.forward(BasisSignal)             [다음] analytics.basis sink
 ```
@@ -173,12 +173,12 @@ print(round(mean, 3), round(var ** 0.5, 3))   # ≈ -5, ≈ 1
 ```json
 {"symbol":"BTCUSDT","event_time":1795739292003,"mark_price":"…","spot_mid":"…","basis":"-31.63","funding_rate":"…",
  "receive_time":…,"spot_receive_time":…,"spot_age_ms":493,"basis_time":…,
- "bps":-5.21,"mean_bps":-4.98,"std_bps":0.31,"z":-0.74,"zBreachStreak":0,"status":"normal","alert_started":false}
+ "bps":-5.21,"mean_bps":-4.98,"std_bps":0.31,"z":-0.74,"zContWarnCnt":0,"status":"normal","alert_started":false}
 ```
 
 - `@JsonUnwrapped Basis basis`: `basis` 안의 필드를 **중첩하지 않고 같은 층에 펼쳐** 쓴다. 그래서 기존 소비자(지연 측정 `basis_time − receive_time` 등)가 그대로 동작한다.
 - 가격은 기존처럼 문자열(`BigDecimal.toPlainString()`), 통계 값은 `double`(소수 넷째 자리 반올림)이다.
-- `status` 값과 대시보드 표기: `warmup`(준비 중) · `normal`(정상) · `warning`(주의) · `alert`(과열). 한국어로 바꾸는 것은 서빙 쪽에서 한다.
+- `status` 값과 대시보드 표기: `warmup`(준비 중) · `check_data`(데이터 확인 필요) · `normal`(정상) · `warning`(주의) · `alert`(과열). 한국어로 바꾸는 것은 서빙 쪽에서 한다.
 
 ---
 
@@ -191,7 +191,7 @@ print(round(mean, 3), round(var ** 0.5, 3))   # ≈ -5, ≈ 1
 | `outputHasBasisAndStatsFields` | 5장 출력 JSON |
 | `warmupDoesNotJudge` | 4번 `warm` 조건 |
 | `normalValuesAreNormal` | 4.2 `alpha`의 `1/(n+1)` |
-| `threeConsecutiveOutliersRaiseAlertOnce` | 4번 zBreachStreak · alertStarted (4.3 표의 41~44번) |
+| `threeConsecutiveOutliersRaiseAlertOnce` | 4번 zContWarnCnt · alertStarted (4.3 표의 41~44번) |
 | `streakResetsWhenBackToNormal` | 4번 "아니면 0" |
 | `duplicateEventTimeIsIgnored` | 1번 validate |
 | `statsAreKeptPerSymbol` | store 키 = 심볼 |
@@ -202,7 +202,7 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -e GRADLE_USER_HOME=/tmp/gradl
   -v "$PWD":/work -w /work eclipse-temurin:17-jdk ./gradlew test --tests '*BasisStatsTest*'
 ```
 
-**직접 해 볼 것:** `threeConsecutiveOutliersRaiseAlertOnce`의 `readAll()` 다음 줄에 `outs.forEach(System.out::println);`을 넣고 돌린다. 출력 JSON의 `z`, `zBreachStreak`, `status`가 한 건씩 바뀌는 것이 4.3 표와 같은지 본다 (결과는 `build/test-results/test/*.xml`의 `system-out`).
+**직접 해 볼 것:** `threeConsecutiveOutliersRaiseAlertOnce`의 `readAll()` 다음 줄에 `outs.forEach(System.out::println);`을 넣고 돌린다. 출력 JSON의 `z`, `zContWarnCnt`, `status`가 한 건씩 바뀌는 것이 4.3 표와 같은지 본다 (결과는 `build/test-results/test/*.xml`의 `system-out`).
 
 ---
 

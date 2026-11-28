@@ -140,6 +140,20 @@ class BasisStatsTest {
         assertFalse(last.get("alert_started").asBoolean());
     }
 
+    // 표본은 충분한데 값이 전부 같으면(표준편차 0) check_data이고 Z는 0, 알림이 없다
+    @Test
+    void flatValuesNeedDataCheck() {
+        for (int index = 0; index < NORMAL_COUNT; index++) {
+            pipeBps(-5);
+        }
+
+        List<JsonNode> outs = readAll();
+        JsonNode last = outs.get(outs.size() - 1);
+        assertEquals("check_data", last.get("status").asText());
+        assertEquals(0.0, last.get("z").asDouble(), 1e-9);
+        assertFalse(last.get("alert_started").asBoolean());
+    }
+
     // 평소 값은 normal이다
     @Test
     void normalValuesAreNormal() {
@@ -180,7 +194,7 @@ class BasisStatsTest {
         pipeBps(-5);
 
         List<JsonNode> outs = readAll();
-        assertEquals(0, outs.get(2).get("zBreachStreak").asInt());
+        assertEquals(0, outs.get(2).get("zContWarnCnt").asInt());
         assertEquals("normal", outs.get(2).get("status").asText());
     }
 
@@ -196,7 +210,7 @@ class BasisStatsTest {
 
         List<JsonNode> outs = readAll();
         assertEquals(2, outs.size());
-        assertEquals(2, outs.get(1).get("zBreachStreak").asInt());
+        assertEquals(2, outs.get(1).get("zContWarnCnt").asInt());
         assertEquals("warning", outs.get(1).get("status").asText());
     }
 

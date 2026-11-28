@@ -12,7 +12,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * basis 입력 두 개의 envelope 파서. flink-join의 SpotMidParser · MarkPriceParser와 같은 일을 한다.
+ * basis 입력 두 개의 envelope 파서. flink-join의 BasisParser와 같다 (같은 검사 · 같은 로그).
  *
  *   parseSpot : clean Spot bookTicker envelope → SpotMid (symbol, (b + a) / 2, receive_time)
  *   parseMark : raw USD-M markPrice envelope   → MarkPrice (symbol, p, r, E, receive_time)

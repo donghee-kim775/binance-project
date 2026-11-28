@@ -53,8 +53,11 @@ spec:
               value: kstreams-dedup
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: binance-cluster-kafka-bootstrap.binancekafka.svc:9092
-            - name: NUM_STREAM_THREADS # pod당 스레드. (현재 route 당 task 3개)
-              value: "1"
+            # pod당 스레드. task = route 1개 × 파티션 3 = 3개
+            #  - 1이면 pod 2개 중 하나가 task 2개(파티션 0 · 2)를 스레드 하나로 처리해, 파티션 2(초당 ~1,700건)를 못 따라간다 (2026-11-28 lag 9만)
+            #  - 2면 스레드 4개 > task 3개라 task마다 스레드 하나씩 돈다
+            - name: NUM_STREAM_THREADS
+              value: "2"
           resources:
             requests:
               cpu: 200m

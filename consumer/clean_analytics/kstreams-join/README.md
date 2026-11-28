@@ -52,9 +52,9 @@ join 바로 뒤, 같은 topology · 같은 트랜잭션에서 심볼별로 계�
 | --- | --- |
 | `bps` | basis ÷ spot_mid × 10,000 |
 | `mean_bps`, `std_bps` | 이번 값을 넣기 **전**의 최근 평균 · 표준편차 (시간 가중 EMA, 시간 상수 5분. 처음 약 5분은 단순 누적) |
-| `z` | (bps − mean_bps) / std_bps. warmup이면 0 |
-| `zBreachStreak` | \|z\| > 2가 연속된 횟수 |
-| `status` | `warmup`(표본 60건 미만) · `normal` · `warning`(연속 1~2) · `alert`(연속 3 이상) |
+| `z` | (bps − mean_bps) / std_bps. warmup · check_data면 0 |
+| `zContWarnCnt` | \|z\| > 2가 연속된 횟수 |
+| `status` | `warmup`(표본 60건 미만) · `check_data`(표본은 충분한데 값이 전부 같아 표준편차 0) · `normal` · `warning`(연속 1~2) · `alert`(연속 3 이상) |
 | `alert_started` | 연속이 정확히 3이 된 한 건만 `true` (과열 알림 1회) |
 
 - 심볼별 state(평균 · 분산 · 표본 수 · 연속 횟수 · 마지막 event_time)는 store `basis-stats`에 두고 changelog로 복원한다.

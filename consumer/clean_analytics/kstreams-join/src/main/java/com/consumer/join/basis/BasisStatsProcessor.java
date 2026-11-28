@@ -1,7 +1,5 @@
 package com.consumer.join.basis;
 
-import java.math.BigDecimal;
-import java.math.MathContext;
 import java.time.Duration;
 
 import org.apache.kafka.streams.processor.api.Processor;
@@ -21,7 +19,7 @@ import com.consumer.join.basis.model.BasisStatsState;
  *   basis ──> 1. 중복 · 역순 가드 ──> 2. bps ──> 3. Z (이전 평균 · 표준편차 기준) ──> 4. 연속 · 상태 · 알림 ──> 5. state 갱신 ──> 출력
  *
  * 최근 평균 · 표준편차 = 시간 가중 EMA (시간 상수 = rule.window, 5분).
- *   - 심볼마다 값 몇 개(mean, var)만 기억한다. 5분 치 300건을 들고 있지 않아도 된다
+ *   - 심볼마다 값 몇 개(averageBps, varBps)만 기억한다. 5분 치 300건을 들고 있지 않아도 된다
  *   - 새 값의 가중치 alpha = 1 − e^(−Δt / 5분). markPrice가 1초마다 오면 alpha ≈ 0.0033
  *   - 처음 약 5분은 1/(n+1)이 더 커서 단순 누적 평균 · 분산으로 쌓인다 (분산이 0에서 시작해 작게 나오는 것을 막는다)
  *   - Z는 이번 값을 넣기 **전**의 평균 · 표준편차로 계산한다 (튄 값이 자기 자신을 평균에 섞어 Z를 줄이지 않게)
@@ -36,17 +34,10 @@ class BasisStatsProcessor implements Processor<String, Basis, String, BasisSigna
 
     private static final Logger log = LoggerFactory.getLogger(BasisStatsProcessor.class);
 
-    static final String WARMUP = "warmup";      // 준비 중 (표본이 minSamples보다 적다)
-    static final String NORMAL = "normal";      // 정상
-    static final String WARNING = "warning";    // 주의 (|Z| > 임계치, 연속 < alertConsecutive)
-    static final String ALERT = "alert";        // 과열 (연속 ≥ alertConsecutive)
-
-    private static final BigDecimal BPS = BigDecimal.valueOf(10_000);
-
     // 과열 판정 규칙 (Insights/1.spot_futures_basis/1_1_plan.md 3장): 5분 EMA 기준 |Z| > 2가 3번 연속이면 알림
     //  - 운영 값이 하나뿐이라 밖에서 받지 않고 여기 고정한다. 바꾸려면 이 값을 고쳐 이미지를 다시 배포한다
     static final BasisStatsRule RULE = new BasisStatsRule(
-            Duration.ofMinutes(5),  // window           : 평균 · 표준편차의 시간 상수
+            Duration.ofMinutes(5),  // window           : 시간 상수
             2.0,                    // zThreshold       : |Z|가 이보다 크면 벗어남
             3,                      // alertConsecutive : 연속 3번이면 과열 → 알림 1번
             60);                    // minSamples       : 1분(60건) 쌓이기 전에는 판정하지 않음
@@ -78,100 +69,116 @@ class BasisStatsProcessor implements Processor<String, Basis, String, BasisSigna
         Basis basis = record.value();
 
         // BasisStatStates
-        // meanBps, varBps, bpsSampleCount, zBreachStreak, lastEventTime
-        BasisStatsState previous = statsStore.get(symbol);
-        if (previous == null) {
-            previous = BasisStatsState.empty();
+        // averageBps, varBps, bpsSampleCount, zContWarnCnt, lastEventTime
+        BasisStatsState prevBasisStats = statsStore.get(symbol);
+        if (prevBasisStats == null) {
+            prevBasisStats = BasisStatsState.empty();
         }
 
-        // 1. 중복 · 역순 가드: 이미 반영한 시각이거나 그보다 옛 값이면 버린다 (수집기 재연결로 같은 markPrice가 다시 오는 경우)
-        //  - spot_mid > 0은 여기서 다시 보지 않는다. BasisParser.validateSpot이 입구에서 bid · ask > 0을 보장한다
-        if (basis.eventTime() <= previous.lastEventTime()) {
-            log.warn("[basis] skip stats: old event_time {} <= {} — {}",
-                    basis.eventTime(), previous.lastEventTime(), symbol);
+        // 1. 중복 · 역순 가드: 
+        //  - 이미 반영한 시각이거나 그보다 옛 값이면 버린다.
+        if (basis.eventTime() <= prevBasisStats.lastEventTime()) {
+            log.warn("[basis] skip stats: old event_time - " + symbol + " : "
+                    + basis.eventTime() + " <= " + prevBasisStats.lastEventTime());
             return;
         }
 
-        // 2. bps = basis ÷ spot_mid × 10,000  (심볼마다 가격 단위가 달라 비율로 비교한다)
-        double bps = new BigDecimal(basis.basis())
-                .multiply(BPS)
-                .divide(new BigDecimal(basis.spotMid()), MathContext.DECIMAL64)
-                .doubleValue();
+        // 2. bps 계산
+        // bps = (basis-spotmid)/10000
+        double bps = Double.parseDouble(basis.basis()) / Double.parseDouble(basis.spotMid()) * 10_000;
 
-        // 3. Z: 이번 값을 넣기 전의 평균 · 표준편차 기준
-        double stdBps = Math.sqrt(previous.varBps());
-        boolean warm = previous.bpsSampleCount() >= rule.minSamples() && stdBps > 0;
-        double z = warm ? (bps - previous.meanBps()) / stdBps : 0.0;
+        // 3. Z 계산
+        // Z = (현재 bps - 최근 bps 평균) / 최근 bps 표준편차
+        double stdBps = Math.sqrt(prevBasisStats.varBps());
+
+        // warm = 표본이 60개 이상이고 표준편차가 0보다 큰가(정상 데이터인가)?
+        boolean enoughSamples = prevBasisStats.bpsSampleCount() >= rule.minSamples();
+        boolean noVariation = enoughSamples && stdBps == 0;
+        boolean warm = enoughSamples && stdBps > 0;
+
+        double z = warm ? (bps - prevBasisStats.averageBps()) / stdBps : 0.0;
 
         // 4. 연속 횟수 · 상태 · 알림
-        //  - warmup 동안은 판정하지 않는다 (연속 0)
-        //  - 알림은 연속이 정확히 alertConsecutive가 되는 한 건만 (계속 과열이어도 다시 울리지 않는다)
-        int zBreachStreak = warm && Math.abs(z) > rule.zThreshold() ? previous.zBreachStreak() + 1 : 0;
-        //  - 상태: warmup → (연속 ≥ alertConsecutive) alert → (연속 > 0) warning → normal 순서로 먼저 맞는 것
+        //    ㄴ warm 상태이면서, z가 임계치를 넘었는가?
+        //          | 심각도 수준 : normal -> warning -> alert 
+        //          - alert    (빨강)  : 과열 알람  (세번 연속 주의 -> 과열)
+        //          - warning  (노랑)  : 주의      (|z| > 임계치)
+        //          - normal   (초록)  : 정상수치
+        int zContWarnCnt = warm && Math.abs(z) > rule.zThreshold() ? prevBasisStats.zContWarnCnt() + 1 : 0;
+
         String status;
-        if (!warm) {
-            status = WARMUP;
-        } else if (zBreachStreak >= rule.alertConsecutive()) {
-            status = ALERT;
-        } else if (zBreachStreak > 0) {
-            status = WARNING;
+        if (!enoughSamples) {
+            status = "warmup";          // 준비 중 (표본이 minSamples보다 적다)
+        } else if (noVariation) {
+            status = "check_data";      // 데이터 확인 필요 (표본은 충분한데 값이 전부 같아 표준편차 0 → Z를 낼 수 없다)
+        } else if (zContWarnCnt >= rule.alertConsecutive()) {
+            status = "alert";           // 과열 (연속 ≥ alertConsecutive)
+        } else if (zContWarnCnt > 0) {
+            status = "warning";         // 주의 (|Z| > 임계치, 연속 < alertConsecutive)
         } else {
-            status = NORMAL;
+            status = "normal";          // 정상
         }
-        boolean alertStarted = zBreachStreak == rule.alertConsecutive();
+        boolean alertStarted = zContWarnCnt == rule.alertConsecutive();
 
         // 5. state 갱신: 시간 가중 EMA (첫 값이면 그 값으로 시작)
-        BasisStatsState next = updated(previous, bps, basis.eventTime(), zBreachStreak);
-        statsStore.put(symbol, next);
+        BasisStatsState newBasisStats = updated(prevBasisStats, bps, basis.eventTime(), zContWarnCnt);
+        statsStore.put(symbol, newBasisStats);
 
         BasisSignal signal = new BasisSignal(
                 basis,                          // basis 필드 그대로
                 round(bps),                     // bps
-                round(previous.meanBps()),      // mean_bps
+                round(prevBasisStats.averageBps()), // mean_bps (JSON)
                 round(stdBps),                  // std_bps
                 round(z),                       // z
-                zBreachStreak,                  // zBreachStreak
+                zContWarnCnt,                  // zContWarnCnt
                 status,                         // status
-                alertStarted);                  // alert_started
+                alertStarted                    // alert_started
+        );
+
         if (alertStarted) {
             log.info("[basis] alert {}: z={} bps={} (|z| > {} × {})", symbol, round(z), round(bps),
                     rule.zThreshold(), rule.alertConsecutive());
         }
+        
         context.forward(record.withValue(signal));   // [다음] analytics.basis sink
     }
 
-    /**
-     * 지수 가중 평균 · 분산 갱신 (Welford의 EMA판).
-     *   alpha = max(1 − e^(−Δt / window), 1 / (n + 1))
-     *   diff  = x − mean
-     *   mean' = mean + alpha × diff
-     *   var'  = (1 − alpha) × (var + alpha × diff²)
-     */
-    private BasisStatsState updated(BasisStatsState previous, double bps, long eventTime, int zBreachStreak) {
-        if (previous.bpsSampleCount() == 0) {
+    /*
+    state 업데이트 : EMA 방식으로 각 지표 상태를 업데이트한다.
+    */
+    private BasisStatsState updated(BasisStatsState prevBasisStats, double bps, long eventTime, int zContWarnCnt) {
+        if (prevBasisStats.bpsSampleCount() == 0) {
             return new BasisStatsState(
-                    bps,            // meanBps : 첫 값으로 시작
+                    bps,            // averageBps : 첫 값으로 시작
                     0.0,            // varBps
                     1,              // bpsSampleCount
-                    0,              // zBreachStreak
+                    0,              // zContWarnCnt
                     eventTime);     // lastEventTime
         }
+        
+        // EMWA(=지수이동가중 average) : 
+        // ㄴ currEMWA = prevEMWA + alpha x (X-prevEMWA)
+        //                        ㄴ alpha = (timeAlpha(시간 가중치) or nAlpha(표본수 가중치))
+        //                                   - timealpha = 1 - e^(-이전과 현재이벤트의 시간 차이 / 시간상수)
+        //                                   - nAlpha = 1/(표본수 + 1)
+        // EWMV(= 지수 가중 이동 분산) :
+        // ㄴ currEWMV = (1 − alpha) × (prevEWMV + alpha × (x − prevEWMA)²)
+        long elapsedMs = eventTime - prevBasisStats.lastEventTime();
+        double timeAlpha = 1.0 - Math.exp(
+            -(double) elapsedMs / rule.window().toMillis()
+        );
+        double nAlpha = 1.0 / (prevBasisStats.bpsSampleCount() + 1);
+        double alpha = Math.max(timeAlpha, nAlpha);
 
-        // 가중치: 시간 가중(5분 EMA)과 1/(n+1)(단순 누적 평균) 중 큰 값
-        //  - 처음에는 1/(n+1)이 커서 단순 평균 · 분산처럼 쌓인다 (0에서 시작한 분산이 작게 나와 Z가 부풀지 않게)
-        //  - 표본이 약 300건(5분)을 넘으면 시간 가중치가 커져 최근 5분 EMA로 넘어간다
-        long elapsedMs = eventTime - previous.lastEventTime();
-        double timeAlpha = 1.0 - Math.exp(-(double) elapsedMs / rule.window().toMillis());
-        double alpha = Math.max(timeAlpha, 1.0 / (previous.bpsSampleCount() + 1));
-        double diff = bps - previous.meanBps();
-        double mean = previous.meanBps() + alpha * diff;
-        double variance = (1.0 - alpha) * (previous.varBps() + alpha * diff * diff);
+        double diffBps = bps - prevBasisStats.averageBps();                                        // 이번 bps − 기존 평균 (EMA)
+        double averageBps = prevBasisStats.averageBps() + alpha * diffBps;                         // EMA 평균을 이번 값 쪽으로 alpha만큼 당긴다
+        double varBps = (1.0 - alpha) * (prevBasisStats.varBps() + alpha * Math.pow(diffBps, 2)); // 분산도 같은 가중치로. (x − 평균)²
 
         return new BasisStatsState(
-                mean,                           // meanBps
-                variance,                       // varBps
-                previous.bpsSampleCount() + 1,  // bpsSampleCount
-                zBreachStreak,                  // zBreachStreak
+                averageBps,                     // averageBps
+                varBps,                         // varBps
+                prevBasisStats.bpsSampleCount() + 1, // bpsSampleCount
+                zContWarnCnt,                  // zContWarnCnt
                 eventTime);                     // lastEventTime
     }
 
