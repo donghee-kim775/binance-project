@@ -1,0 +1,106 @@
+# Flink dedup job — raw 9개 → clean 9개 (consumer/flink-design.md)
+# Flink Operator가 이 리소스를 보고 JobManager · TaskManager pod를 띄우고 job을 제출한다.
+#   docker build -t kimdonghee125/flink-app:0.0.3 .          (consumer/raw_clean/flink-dedup/ 에서)
+#   docker push kimdonghee125/flink-app:0.0.3
+#   kubectl apply -f deploy/dedup.yaml
+#
+# 먼저 MinIO 계정 Secret을 이 namespace에도 만든다 (Secret은 namespace마다 따로다. 값은 binance-storage의 minio-auth와 같게):
+#   kubectl create secret generic minio-auth -n binance-processing \
+#     --from-literal=root-user='<아이디>' --from-literal=root-password='<비밀번호>'
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: flink-dedup
+  namespace: binance-processing
+spec:
+  image: kimdonghee125/flink-app:0.0.3
+  imagePullPolicy: IfNotPresent   # Docker Hub(kimdonghee125)에서 받는다. 태그를 올려서 배포한다
+  flinkVersion: v2_2
+  # Operator 설치(helm) 때 이 namespace에 만들어지는 서비스 계정. JobManager가 TaskManager pod를 만들 때 쓴다
+  serviceAccount: flink
+
+  # ConfigMap -> /opt/flink/conf/config.yaml -> env getExecutionEnvironment()
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "1"          # TaskManager 하나의 슬롯 수. 가장 큰 병렬도(3)만큼 슬롯이 필요해 TaskManager 3개가 뜬다
+    taskmanager.memory.managed.fraction: "0.1"  # state가 heap이라 managed memory는 거의 안 씀
+
+    # 체크포인트 동작 (바꾸면 apply만, 이미지 재빌드 불필요)
+    execution.checkpointing.interval: 1s                        # 완료 시 Kafka offset 커밋 (10s → 1s, 2026-11-23: lag 톱니를 Kafka Streams와 비교)
+    execution.checkpointing.mode: EXACTLY_ONCE
+    execution.checkpointing.timeout: 1min                       # 기본 10min
+    execution.checkpointing.min-pause: 500ms                    # interval보다 작게 (5s면 실제 간격이 5s 이상이 된다)
+    execution.checkpointing.max-concurrent-checkpoints: "1"
+    execution.checkpointing.tolerable-failed-checkpoints: "3"   # 연속 3번 실패까지 재시작 안 함
+    execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION  # 취소해도 마지막 체크포인트 보관
+
+    # 체크포인트 저장소
+    execution.checkpointing.dir: s3://binance/flink/clean/flink-dedup/checkpoints
+    execution.checkpointing.savepoint-dir: s3://binance/flink/clean/flink-dedup/savepoints  # upgradeMode: savepoint에 필요
+    s3.endpoint: http://minio.binance-storage.svc:9000
+    s3.path.style.access: "true"                                # MinIO는 버킷을 경로(/<버킷>)로 찾음
+
+    # JobManager HA: leader 선출 · 마지막 체크포인트 위치를 ConfigMap + MinIO에 남긴다
+    # → JobManager pod가 다시 떠도 체크포인트에서 이어감. jobManager.replicas > 1(standby)의 전제 조건
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://binance/flink/clean/flink-dedup/ha
+
+  jobManager:
+    replicas: 1   # 2로 하면 standby가 떠 있다가 leader가 죽으면 바로 넘겨받음 (메모리 1Gi 추가)
+    resource:
+      memory: "1024m"
+      cpu: 0.5
+  taskManager:
+    resource:
+      memory: "1536m"
+      cpu: 0.5
+
+  # JobManager · TaskManager 컨테이너 공통 설정. flink-main-container가 Flink가 도는 컨테이너 이름이다
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: binance-cluster-kafka-bootstrap.binancekafka.svc:9092
+            # Flink 이미지 /opt/flink/opt에 있는 S3 플러그인을 plugins/로 옮겨 켠다 (이미지 entrypoint가 처리)
+            - name: ENABLE_BUILT_IN_PLUGINS
+              value: flink-s3-fs-hadoop-2.2.1.jar
+            # 계정은 환경 변수로 넘겨 git에 올라가는 이 파일에 남기지 않는다. S3 플러그인(hadoop S3A)이 이 이름을 읽는다
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-auth
+                  key: root-password
+
+  job:
+    jarURI: local:///opt/flink/usrlib/flink-app.jar   # 이미지 안의 경로 (Dockerfile)
+    entryClass: com.consumer.dedup.DedupJob
+    parallelism: 1           # 기본값일 뿐. DedupJob이 연산자마다 setParallelism(raw·parse 3, dedup·sink 2)을 해서 코드 값이 쓰인다
+    upgradeMode: savepoint   # 재배포 때 savepoint로 state · offset을 이어받음 (uid 고정 필요)
+    # 경로 = <product>.<자산종류>.<스트림>:<id 필드> → binance.<raw|clean>.<경로>
+    # 추가할 때는 raw · clean 토픽도 같이 만든다. markprice는 중복이 없어 제외
+    
+    # ex) `btcusdt@bookTicker`
+    # {
+    #   "u": 400900217,             # updateId     / 오더북 업데이트 ID
+    #   "s": "BTCUSDT",             # symbol
+    #   "b": "77300.90000000",      # bestBidPrice / 최우선 매수 호가
+    #   "B": "3.21000000",          # bestBidQty   / 최우선 매수 잔량
+    #   "a": "77300.91000000",      # bestAskPrice / 최우선 매도 호가
+    #   "A": "0.66000000"           # bestAskQty   / 최우선 매도 잔량
+    # }
+    args:
+      - spot.crypto.bookticker:u
+      # - spot.crypto.trade:t
+      # - spot.crypto.depth:u
+      # - usdm.crypto.bookticker:u
+      # - usdm.crypto.aggtrade:a
+      # - usdm.crypto.depth:u
+      # - usdm.stock.bookticker:u
+      # - usdm.stock.aggtrade:a
+      # - usdm.stock.depth:u

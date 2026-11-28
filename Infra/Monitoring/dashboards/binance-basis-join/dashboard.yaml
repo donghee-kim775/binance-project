@@ -1,0 +1,1510 @@
+# Grafana 대시보드: basis join — Flink keyBy(flink-basis) · Flink co-partition(flink-basis-copart) · Kafka Streams(kstreams-basis-kdedup) 비교
+# - 라벨 grafana_dashboard: "1" 이면 Grafana sidecar가 자동으로 불러온다 (Infra/Monitoring/README.md)
+# - 지표 출처: Kafka Exporter (출력 offset, consumer lag) + cAdvisor (pod CPU · 메모리 · 네트워크). 앱 reporter 없이 본다
+# - 각 경로는 해당 overlay로 띄웠을 때만 값이 있다 (kstreams-join/compare · compare-kdedup, flink-join/compare-copart)
+# - 지연(basis_time − receive_time)은 메시지 안의 값이라 Prometheus로 볼 수 없다. 같은 폴더 README.md의 측정 명령을 쓴다
+# - 패널별 계산 방법: 같은 폴더의 README.md
+# - 이 파일은 생성 스크립트로 만들었다. 패널을 고칠 때는 JSON을 직접 고쳐도 된다
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-binance-basis-join
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  binance-basis-join.json: |
+    {
+      "uid": "binance-basis-join",
+      "title": "Binance / basis join: Flink(keyBy · co-partition) vs Kafka Streams",
+      "tags": [
+        "binance"
+      ],
+      "timezone": "browser",
+      "refresh": "10s",
+      "time": {
+        "from": "now-15m",
+        "to": "now"
+      },
+      "schemaVersion": 39,
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "데이터 소스",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 100,
+          "type": "row",
+          "title": "Flink keyBy · flink-basis",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "출력 · Flink keyBy",
+          "description": "binance.analytics.crypto.basis. 출력 토픽의 끝 offset 증가율(1분). markPrice가 심볼마다 초당 1건이라 6심볼이면 약 6/s. Kafka Streams는 exactly-once 트랜잭션 마커만큼 크게 보인다",
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis\"}[1m]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 2,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#E0752D"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#E0752D",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Lag (2분 평균) · Flink keyBy",
+          "description": "group flink-basis. consumer group lag 합 (Spot + mark). Flink는 체크포인트(10s)마다 커밋해 톱니, Kafka Streams는 100ms(EOS)",
+          "gridPos": {
+            "x": 6,
+            "y": 1,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"flink-basis\"}, 0))[2m:15s])"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#E0752D"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#E0752D",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "CPU · Flink keyBy",
+          "description": "pod flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5}). pod CPU 합 (Flink는 JobManager + TaskManager). core, 2분 평균",
+          "gridPos": {
+            "x": 12,
+            "y": 1,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: core",
+              "decimals": 3,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#E0752D"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#E0752D",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "메모리 · Flink keyBy",
+          "description": "pod flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5}). pod working set 합 (Flink는 JVM 메모리를 미리 잡아 실제 state보다 크다)",
+          "gridPos": {
+            "x": 18,
+            "y": 1,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"})"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#E0752D"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#E0752D",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 105,
+          "type": "row",
+          "title": "Flink co-partition · flink-basis-copart",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 6,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "출력 · Flink co-partition",
+          "description": "binance.analytics.crypto.basis.copart. 출력 토픽의 끝 offset 증가율(1분). markPrice가 심볼마다 초당 1건이라 6심볼이면 약 6/s. Kafka Streams는 exactly-once 트랜잭션 마커만큼 크게 보인다",
+          "gridPos": {
+            "x": 0,
+            "y": 7,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.copart\"}[1m]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 2,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#B62AD9"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#B62AD9",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Lag (2분 평균) · Flink co-partition",
+          "description": "group flink-basis-copart. consumer group lag 합 (Spot + mark). Flink는 체크포인트(10s)마다 커밋해 톱니, Kafka Streams는 100ms(EOS)",
+          "gridPos": {
+            "x": 6,
+            "y": 7,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"flink-basis-copart\"}, 0))[2m:15s])"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#B62AD9"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#B62AD9",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "CPU · Flink co-partition",
+          "description": "pod flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5}). pod CPU 합 (Flink는 JobManager + TaskManager). core, 2분 평균",
+          "gridPos": {
+            "x": 12,
+            "y": 7,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: core",
+              "decimals": 3,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#B62AD9"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#B62AD9",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 8,
+          "type": "stat",
+          "title": "메모리 · Flink co-partition",
+          "description": "pod flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5}). pod working set 합 (Flink는 JVM 메모리를 미리 잡아 실제 state보다 크다)",
+          "gridPos": {
+            "x": 18,
+            "y": 7,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"})"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#B62AD9"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#B62AD9",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 110,
+          "type": "row",
+          "title": "Kafka Streams · kstreams-basis-kdedup",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 12,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 9,
+          "type": "stat",
+          "title": "출력 · Kafka Streams",
+          "description": "binance.analytics.crypto.basis.kdedup.kstreams. 출력 토픽의 끝 offset 증가율(1분). markPrice가 심볼마다 초당 1건이라 6심볼이면 약 6/s. Kafka Streams는 exactly-once 트랜잭션 마커만큼 크게 보인다",
+          "gridPos": {
+            "x": 0,
+            "y": 13,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.kdedup.kstreams\"}[1m]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "decimals": 2,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#3274D9"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3274D9",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "Lag (2분 평균) · Kafka Streams",
+          "description": "group kstreams-basis-kdedup. consumer group lag 합 (Spot + mark). Flink는 체크포인트(10s)마다 커밋해 톱니, Kafka Streams는 100ms(EOS)",
+          "gridPos": {
+            "x": 6,
+            "y": 13,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "avg_over_time(sum(clamp_min(kafka_consumergroup_lag{consumergroup=\"kstreams-basis-kdedup\"}, 0))[2m:15s])"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#3274D9"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3274D9",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "CPU · Kafka Streams",
+          "description": "pod kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}. pod CPU 합 (Flink는 JobManager + TaskManager). core, 2분 평균",
+          "gridPos": {
+            "x": 12,
+            "y": 13,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}[2m]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: core",
+              "decimals": 3,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#3274D9"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3274D9",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "메모리 · Kafka Streams",
+          "description": "pod kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}. pod working set 합 (Flink는 JVM 메모리를 미리 잡아 실제 state보다 크다)",
+          "gridPos": {
+            "x": 18,
+            "y": 13,
+            "w": 6,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"})"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 0,
+              "noValue": "-",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "#3274D9"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "#3274D9",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value",
+            "justifyMode": "center",
+            "text": {
+              "titleSize": 13,
+              "valueSize": 28
+            }
+          }
+        },
+        {
+          "id": 115,
+          "type": "row",
+          "title": "출력과 입력 (records/sec)",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 18,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "basis 출력 속도 (offset 증가율)",
+          "description": "끝 offset 증가율이다. Kafka Streams(exactly-once)는 커밋마다 트랜잭션 마커가 offset을 하나 차지해 실제 메시지 수보다 크게 보인다. 실제 건수 비교는 README의 측정 명령으로 한다",
+          "gridPos": {
+            "x": 0,
+            "y": 19,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis\"}[1m]))",
+              "legendFormat": "Flink keyBy"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.copart\"}[1m]))",
+              "legendFormat": "Flink co-partition"
+            },
+            {
+              "refId": "C",
+              "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"binance.analytics.crypto.basis.kdedup.kstreams\"}[1m]))",
+              "legendFormat": "Kafka Streams"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "decimals": 2
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink keyBy"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "입력 속도",
+          "description": "join 입력 토픽들의 유입. Spot clean은 초당 수백 건, mark는 심볼마다 초당 1건. .copart 토픽은 co-partitioning 실험용",
+          "gridPos": {
+            "x": 12,
+            "y": 19,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"binance.clean.spot.crypto.bookticker|binance.clean.spot.crypto.bookticker.kstreams|binance.clean.spot.crypto.bookticker.copart|binance.raw.usdm.crypto.markprice|binance.raw.usdm.crypto.markprice.copart\"}[1m]))",
+              "legendFormat": "{{topic}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "decimals": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 118,
+          "type": "row",
+          "title": "consumer lag · 처리 속도",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 27,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "consumer lag (그룹 · 토픽별)",
+          "description": "계속 오르면 그 경로가 입력을 못 따라가는 것. Flink는 10초 톱니, Kafka Streams는 거의 평평한 게 정상",
+          "gridPos": {
+            "x": 0,
+            "y": 28,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (consumergroup, topic) (clamp_min(kafka_consumergroup_lag{consumergroup=~\"flink-basis|flink-basis-copart|kstreams-basis-kdedup\"}, 0))",
+              "legendFormat": "{{consumergroup}} · {{topic}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "처리 속도 (커밋된 offset 증가율)",
+          "description": "그룹이 초당 처리를 끝내고 커밋한 레코드 수. 입력 속도와 같은 높이면 따라가고 있다",
+          "gridPos": {
+            "x": 12,
+            "y": 28,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (consumergroup, topic) (rate(kafka_consumergroup_current_offset{consumergroup=~\"flink-basis|flink-basis-copart|kstreams-basis-kdedup\"}[1m]))",
+              "legendFormat": "{{consumergroup}} · {{topic}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: /s",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "decimals": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 121,
+          "type": "row",
+          "title": "자원 (pod 합)",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 36,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "CPU",
+          "description": "경로별 pod CPU 합 (2분 평균)",
+          "gridPos": {
+            "x": 0,
+            "y": 37,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m]))",
+              "legendFormat": "Flink keyBy"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"}[2m]))",
+              "legendFormat": "Flink co-partition"
+            },
+            {
+              "refId": "C",
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}[2m]))",
+              "legendFormat": "Kafka Streams"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: core",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "decimals": 3
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink keyBy"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 18,
+          "type": "timeseries",
+          "title": "메모리 (working set)",
+          "description": "경로별 pod 메모리 합",
+          "gridPos": {
+            "x": 8,
+            "y": 37,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"})",
+              "legendFormat": "Flink keyBy"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", container!=\"\"})",
+              "legendFormat": "Flink co-partition"
+            },
+            {
+              "refId": "C",
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"})",
+              "legendFormat": "Kafka Streams"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink keyBy"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "네트워크 송신 (eth0)",
+          "description": "경로별 pod 송신 합. Flink keyBy는 셔플이 TaskManager 사이 트래픽으로 잡힌다. co-partition은 셔플이 없지만 sink · 체크포인트 트래픽은 남는다",
+          "gridPos": {
+            "x": 16,
+            "y": 37,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m]))",
+              "legendFormat": "Flink keyBy"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})\", interface=\"eth0\"}[2m]))",
+              "legendFormat": "Flink co-partition"
+            },
+            {
+              "refId": "C",
+              "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"binance-processing\", pod=~\"kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", interface=\"eth0\"}[2m]))",
+              "legendFormat": "Kafka Streams"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink keyBy"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#E0752D"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Flink co-partition"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#B62AD9"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Kafka Streams"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "#3274D9"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 125,
+          "type": "row",
+          "title": "pod별",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 45,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "CPU (pod별)",
+          "description": "어느 pod가 일을 하는지. Flink JobManager는 거의 쉰다. 빈 파티션을 맡은 subtask · task는 논다",
+          "gridPos": {
+            "x": 0,
+            "y": 46,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"}[2m]))",
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix: core",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "decimals": 3
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "메모리 (pod별)",
+          "description": "pod별 working set",
+          "gridPos": {
+            "x": 12,
+            "y": 46,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"binance-processing\", pod=~\"flink-basis-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|flink-basis-copart-(taskmanager-[0-9]+-[0-9]+|[a-z0-9]+-[a-z0-9]{5})|kstreams-basis-kdedup-[a-z0-9]+-[a-z0-9]{5}\", container!=\"\"})",
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "noValue": "-",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "max",
+                "lastNotNull"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        }
+      ]
+    }

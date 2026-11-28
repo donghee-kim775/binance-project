@@ -94,7 +94,10 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 │   ├── topic/             Kafka 토픽 설계, Insight 1 토픽 흐름
 │   ├── storage/           MinIO 체크포인트 경로 규칙
 │   └── performance/       단계별 지연 측정과 튜닝 (이슈 기록 단계)
-├── consumer/              처리 앱 (flink-dedup: Flink dedup, kstreams-dedup: Kafka Streams dedup, flink-join: basis join, flink-test: 로컬 테스트), 설계 flink-design.md
+├── consumer/              처리 앱. 폴더 = 입력 계층_출력 계층. 설계 flink-design.md
+│   ├── raw_clean/         raw → clean 중복 제거 (flink-dedup, kstreams-dedup)
+│   ├── clean_analytics/   clean(+raw) → analytics basis join (flink-join, kstreams-join)
+│   └── sink/              analytics → Kafka 밖 (Redis · ClickHouse · 알림). 인사이트별 폴더 (insight_1)
 ├── datasource-ingestion/  Ingestion 앱
 │   ├── collector/         수집 앱 (Spring Boot). raw만 envelope로 감싸 발행
 │   ├── deploy/            Dockerfile, variable-rate / fixed-rate K8s 매니페스트, 설정→코드 매핑
@@ -236,6 +239,8 @@ Deployment 7개, Pod 11개, WebSocket 연결 27개로 구성된다. 심볼 선�
 | `notes/` | [collectorInsightsREADME.md](docs/notes/collectorInsightsREADME.md) | 시장별 스키마 차이, 토픽/키 설계 시 주의점 |
 | | [flinkDedupCodeReadingREADME.md](docs/notes/flinkDedupCodeReadingREADME.md) | Flink dedup job 코드 읽는 순서 (yaml → main → 레코드 흐름) |
 | | [flinkDedupRuntimeFlowREADME.md](docs/notes/flinkDedupRuntimeFlowREADME.md) | dedup job 5단계의 런타임 흐름 (스레드 · keyBy 셔플 · state · 체크포인트 barrier) |
+| | [kstreamsDedupCodeReadingREADME.md](docs/notes/kstreamsDedupCodeReadingREADME.md) | Kafka Streams dedup 앱 코드 읽는 순서 (yaml → main → Topology → 레코드 하나 → 트랜잭션) |
+| | [kstreamsBasisStatsCodeReadingREADME.md](docs/notes/kstreamsBasisStatsCodeReadingREADME.md) | basis 과열 판정(BasisStatsProcessor) 코드 읽는 순서 (store 등록 → state → 한 건 처리 → 출력 → 테스트) |
 | `spring/` | [configuration.md](docs/spring/configuration.md) | 설정 출처와 탐색 순서, 프로파일(local/release), 환경변수 이름 규칙, 코드에서 값 받는 법 |
 
 [docs/streams/poc/](docs/streams/poc/)에는 각 시장 WebSocket을 실제로 연결해본 검증용 Jupyter 노트북이 있다.

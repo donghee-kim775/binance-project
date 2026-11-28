@@ -1,0 +1,44 @@
+# 경우의 수 비교: Kafka Streams dedup 결과(clean .kstreams)를 Kafka Streams basis가 읽는 경로 (K→K)
+#   raw → kstreams-dedup → binance.clean.spot.crypto.bookticker.kstreams → kstreams-basis-kdedup → binance.analytics.crypto.basis.kdedup.kstreams
+#   kubectl apply -k consumer/clean_analytics/kstreams-join/compare-kdedup
+#   kubectl delete -k consumer/clean_analytics/kstreams-join/compare-kdedup     (끝나면. changelog 토픽은 따로 남는다)
+# 대시보드: Infra/Monitoring/dashboards/binance-processing-jobs/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../deploy
+  - basis-kdedup-kstreams-topic.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: kstreams-basis
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: kstreams-basis-kdedup
+      # 라벨 · selector를 바꿔 kstreams-basis(F→K)와 pod가 섞이지 않게 한다
+      - op: replace
+        path: /metadata/labels/app.kubernetes.io~1name
+        value: kstreams-basis-kdedup
+      - op: replace
+        path: /spec/selector/matchLabels/app.kubernetes.io~1name
+        value: kstreams-basis-kdedup
+      - op: replace
+        path: /spec/template/metadata/labels/app.kubernetes.io~1name
+        value: kstreams-basis-kdedup
+      # env[0] = KAFKA_APPLICATION_ID (consumer group · changelog 이름이 갈린다)
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: kstreams-basis-kdedup
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPOT_TOPIC_SUFFIX
+          value: .kstreams
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: BASIS_TOPIC_SUFFIX
+          value: .kdedup.kstreams

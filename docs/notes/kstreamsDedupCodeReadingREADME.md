@@ -1,9 +1,9 @@
 # Kafka Streams dedup 앱 코드 읽는 순서
 
-raw 토픽에는 Active-Active pod 2개가 같은 이벤트를 각자 보내 중복이 있다. [consumer/kstreams-dedup](../../consumer/kstreams-dedup/)은 이 중복을 지워 clean 토픽으로 옮기는 Kafka Streams 앱이다. 이 노트는 그 코드를 처음 읽을 때 따라갈 순서다.
+raw 토픽에는 Active-Active pod 2개가 같은 이벤트를 각자 보내 중복이 있다. [consumer/raw_clean/kstreams-dedup](../../consumer/raw_clean/kstreams-dedup/)은 이 중복을 지워 clean 토픽으로 옮기는 Kafka Streams 앱이다. 이 노트는 그 코드를 처음 읽을 때 따라갈 순서다.
 **배포 yaml → `main` → Topology 조립 → 레코드 하나 → 트랜잭션 커밋 → 리밸런스 · 장애** 순서로 본다. 예시 메시지는 `binance.raw.spot.crypto.bookticker`에 실제로 들어온 것이다.
 
-하는 일은 Flink 버전([flinkDedupCodeReadingREADME.md](flinkDedupCodeReadingREADME.md))과 같다. 그래서 장마다 **Flink에서는 무엇이 대응하나**를 같이 적었다. 실행 방법과 전환 절차는 [kstreams-dedup/README.md](../../consumer/kstreams-dedup/README.md)에 있다.
+하는 일은 Flink 버전([flinkDedupCodeReadingREADME.md](flinkDedupCodeReadingREADME.md))과 같다. 그래서 장마다 **Flink에서는 무엇이 대응하나**를 같이 적었다. 실행 방법과 전환 절차는 [kstreams-dedup/README.md](../../consumer/raw_clean/kstreams-dedup/README.md)에 있다.
 
 ---
 
@@ -25,14 +25,14 @@ pod 하나 = JVM 프로세스 하나 ── DedupApp.main(args)
 
 | 순서 | 파일 | 보는 것 |
 | --- | --- | --- |
-| 1 | [deploy/dedup.yaml](../../consumer/kstreams-dedup/deploy/dedup.yaml), [Dockerfile](../../consumer/kstreams-dedup/Dockerfile), [build.gradle](../../consumer/kstreams-dedup/build.gradle) | yaml 값이 어디로 들어가나 |
-| 2 | [DedupApp.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/DedupApp.java) `main` | 앱 조립, 종료 · 실패 처리 |
-| 3 | [DedupRoute.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/dedup/DedupRoute.java) | 인자 문자열 → raw · clean 토픽, store 이름 |
-| 4 | [DedupTopology.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/dedup/DedupTopology.java) | 경로 하나의 파이프라인 + store |
-| 5 | [DedupProcessor.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/dedup/DedupProcessor.java) | 레코드 하나의 처리 |
-| 6 | 다시 [KafkaConfig.java](../../consumer/kstreams-dedup/src/main/java/com/consumer/dedup/config/KafkaConfig.java) `create` | exactly-once 커밋 |
+| 1 | [deploy/dedup.yaml](../../consumer/raw_clean/kstreams-dedup/deploy/dedup.yaml), [Dockerfile](../../consumer/raw_clean/kstreams-dedup/Dockerfile), [build.gradle](../../consumer/raw_clean/kstreams-dedup/build.gradle) | yaml 값이 어디로 들어가나 |
+| 2 | [DedupApp.java](../../consumer/raw_clean/kstreams-dedup/src/main/java/com/consumer/dedup/DedupApp.java) `main` | 앱 조립, 종료 · 실패 처리 |
+| 3 | [DedupRoute.java](../../consumer/raw_clean/kstreams-dedup/src/main/java/com/consumer/dedup/dedup/DedupRoute.java) | 인자 문자열 → raw · clean 토픽, store 이름 |
+| 4 | [DedupTopology.java](../../consumer/raw_clean/kstreams-dedup/src/main/java/com/consumer/dedup/dedup/DedupTopology.java) | 경로 하나의 파이프라인 + store |
+| 5 | [DedupProcessor.java](../../consumer/raw_clean/kstreams-dedup/src/main/java/com/consumer/dedup/dedup/DedupProcessor.java) | 레코드 하나의 처리 |
+| 6 | 다시 [KafkaConfig.java](../../consumer/raw_clean/kstreams-dedup/src/main/java/com/consumer/dedup/config/KafkaConfig.java) `create` | exactly-once 커밋 |
 | 7 | — | pod 2개의 task 분배, 장애 · 재배포 |
-| 8 | [DedupTopologyTest.java](../../consumer/kstreams-dedup/src/test/java/com/consumer/dedup/dedup/DedupTopologyTest.java) | broker 없이 돌려 보기 |
+| 8 | [DedupTopologyTest.java](../../consumer/raw_clean/kstreams-dedup/src/test/java/com/consumer/dedup/dedup/DedupTopologyTest.java) | broker 없이 돌려 보기 |
 
 ---
 
@@ -264,7 +264,7 @@ clean.readKeyValuesToList();   // 1건
 
 - `TopologyTestDriver`는 Topology를 메모리 안에서 한 스레드로 돌린다. 레코드를 넣으면 sink까지 바로 동기로 흐른다. Python으로 치면 가짜 Kafka를 넣은 pytest다.
 - timestamp를 직접 정해 넣으므로 TTL 경계(1분 넘게 늦은 중복)도 시험할 수 있다.
-- **확인하지 못하는 것:** 트랜잭션, 리밸런스, changelog 복원. 이것들은 클러스터에서 pod를 지워 보며 확인한다 ([README](../../consumer/kstreams-dedup/README.md) "확인").
+- **확인하지 못하는 것:** 트랜잭션, 리밸런스, changelog 복원. 이것들은 클러스터에서 pod를 지워 보며 확인한다 ([README](../../consumer/raw_clean/kstreams-dedup/README.md) "확인").
 
 ---
 

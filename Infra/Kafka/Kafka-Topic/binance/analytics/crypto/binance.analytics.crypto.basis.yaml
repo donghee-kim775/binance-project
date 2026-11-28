@@ -1,4 +1,4 @@
-# Spot-Futures basis — Flink basis job(consumer/flink-join)이 쓴다 (docs/kafka/topics.md)
+# Spot-Futures basis — Flink basis job(consumer/clean_analytics/flink-join)이 쓴다 (docs/kafka/topics.md)
 # 입력: binance.clean.spot.crypto.bookticker + binance.raw.usdm.crypto.markprice. markPrice 1건당 1건 (심볼마다 초당 1건)
 # Spot과 USD-M을 함께 쓰는 결과라 이름에 product가 없다
 apiVersion: kafka.strimzi.io/v1

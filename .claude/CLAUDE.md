@@ -47,6 +47,10 @@ public CompletionStage<?> onText(...) {
     messageHandler.handle(message); // [다음] CollectorRunner의 람다 → MarketDataIngestService.onRaw
 ```
 
+## 처리 앱 코드 규칙
+
+`consumer/` 아래 Flink · Kafka Streams 코드를 쓸 때는 @.claude/rules/consumer-code.md 를 따른다 (구조, 이름, validate, 종료 처리, 테스트 이름).
+
 ## 문서 작성 규칙
 
 - 문서는 한국어로 쓴다.

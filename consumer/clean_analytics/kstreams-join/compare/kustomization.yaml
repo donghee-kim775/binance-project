@@ -1,0 +1,21 @@
+# Flink basis와 나란히 띄워 비교하는 실행 (Flink는 binance.analytics.crypto.basis, 이 앱은 binance.analytics.crypto.basis.kstreams에 쓴다)
+#   kubectl apply -k consumer/clean_analytics/kstreams-join/compare
+#   kubectl delete -k consumer/clean_analytics/kstreams-join/compare     (끝나면. changelog 토픽은 따로 남는다)
+# 대시보드: Infra/Monitoring/dashboards/binance-basis-join/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../deploy
+  - basis-kstreams-topic.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: kstreams-basis
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: BASIS_TOPIC_SUFFIX
+          value: .kstreams

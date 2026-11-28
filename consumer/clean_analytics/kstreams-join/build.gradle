@@ -1,0 +1,46 @@
+plugins {
+    id 'java'
+    // main() 실행용. installDist가 build/install/kstreams-join/{bin,lib}에 실행 스크립트와 의존성 jar를 모은다
+    id 'application'
+}
+
+group = 'com.consumer'
+version = '0.0.1'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Kafka Streams는 라이브러리다. Flink처럼 클러스터가 따로 없고, 이 프로세스 안에서 돈다
+    // 버전은 broker(Strimzi Kafka 4.2.0)와 맞춘다
+    implementation 'org.apache.kafka:kafka-streams:4.2.0'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.22.4'
+    // Kafka 클라이언트가 slf4j로 로그를 남긴다. 표준 출력으로 내보내는 가장 단순한 구현
+    implementation 'org.slf4j:slf4j-simple:2.0.17'
+
+    // TopologyTestDriver: broker 없이 메모리 안에서 Topology를 돌려 보는 테스트 도구
+    testImplementation 'org.apache.kafka:kafka-streams-test-utils:4.2.0'
+    testImplementation platform('org.junit:junit-bom:5.13.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'failed'
+    }
+}
+
+application {
+    mainClass = 'com.consumer.join.BasisApp'
+    // 컨테이너 메모리 limit 기준으로 heap을 잡는다 (state는 heap 안의 in-memory key-value store)
+    applicationDefaultJvmArgs = ['-XX:MaxRAMPercentage=60']
+}

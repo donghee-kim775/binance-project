@@ -1,0 +1,56 @@
+# co-partitioning 실험: clean을 Flink key group 규칙으로 파티셔닝해 .copart 토픽에 쓴다 (flink-basis-copart가 keyBy 없이 읽는다)
+#   raw spot → flink-dedup-copart → binance.clean.spot.crypto.bookticker.copart (파티션 = 그 심볼을 맡을 basis subtask)
+#   docker build -t kimdonghee125/flink-app:0.0.4 .          (consumer/raw_clean/flink-dedup/ 에서)
+#   docker push kimdonghee125/flink-app:0.0.4
+#   kubectl apply -k consumer/raw_clean/flink-dedup/compare-copart
+#   kubectl delete -k consumer/raw_clean/flink-dedup/compare-copart     (끝나면)
+# 기본 flink-dedup(0.0.3, Kafka 기본 partitioner)은 그대로 둔다. 전체 실험 순서: consumer/clean_analytics/flink-join/README.md
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../deploy
+  - clean-copart-topic.yaml
+
+patches:
+  - target:
+      kind: FlinkDeployment
+      name: flink-dedup
+    patch: |-
+      # FlinkDeployment의 spec.image는 kustomize images가 바꾸지 못해 patch로 바꾼다
+      - op: replace
+        path: /spec/image
+        value: kimdonghee125/flink-app:0.0.4   # FlinkKeyGroupPartitioner · CLEAN_PARTITIONER env가 들어간 버전
+      - op: replace
+        path: /metadata/name
+        value: flink-dedup-copart
+      # MinIO 경로도 job 이름으로 나눈다 (CLAUDE.md MinIO 경로 규칙)
+      - op: replace
+        path: /spec/flinkConfiguration/execution.checkpointing.dir
+        value: s3://binance/flink/clean/flink-dedup-copart/checkpoints
+      - op: replace
+        path: /spec/flinkConfiguration/execution.checkpointing.savepoint-dir
+        value: s3://binance/flink/clean/flink-dedup-copart/savepoints
+      - op: replace
+        path: /spec/flinkConfiguration/high-availability.storageDir
+        value: s3://binance/flink/clean/flink-dedup-copart/ha
+      - op: add
+        path: /spec/podTemplate/spec/containers/0/env/-
+        value:
+          name: KAFKA_GROUP_ID
+          value: flink-dedup-copart
+      - op: add
+        path: /spec/podTemplate/spec/containers/0/env/-
+        value:
+          name: CLEAN_TOPIC_SUFFIX
+          value: .copart
+      - op: add
+        path: /spec/podTemplate/spec/containers/0/env/-
+        value:
+          name: CLEAN_PARTITIONER
+          value: flink-keygroup
+      - op: add
+        path: /spec/podTemplate/spec/containers/0/env/-
+        value:
+          name: FLINK_MAX_PARALLELISM   # flink-basis-copart의 maxParallelism과 같게
+          value: "128"
